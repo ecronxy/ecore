@@ -1,0 +1,76 @@
+/* Раскладка страницы eCore. Компоненты берутся из HeroUI, рецепты из tier-glass.css;
+   здесь только сетка, размеры текста и модификаторы поверх компонентов. */
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; font-size: 17px; line-height: 25px; }
+.wrap { max-width: 1260px; margin: 0 auto; padding: 0 24px; box-sizing: content-box; }
+
+.hero { text-align: center; padding: 56px 0 32px; }
+.hero h1 { margin: 0; font-size: 40px; line-height: 44px; font-weight: 700; letter-spacing: -0.025em; }
+.hero p { margin: 10px 0 0; font-size: 21px; line-height: 25px; color: var(--muted); }
+
+.studio { display: grid; gap: 16px; }
+.panel { gap: 20px; padding: 20px; border-radius: 28px; min-width: 0; }
+.stage { width: 100%; max-width: 400px; aspect-ratio: 1; margin: 0 auto; }
+.stage canvas { display: block; width: 100%; }
+.tabs__list[data-orientation=horizontal] { width: 100%; min-width: 0; }
+.tabs__tab { position: relative; flex: 1; min-width: 0; height: 36px; padding-inline: 4px; font-size: 15px; }
+
+.field-lg { height: 56px; padding-inline: 20px; font-size: 19px; line-height: 24px; border-radius: 16px; }
+.label { font-size: 13px; line-height: 18px; color: var(--muted); font-weight: 400; }
+.actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 24px; }
+.cta { height: 56px; padding-inline: 28px; font-size: 19px; font-weight: 600; border-radius: 999px; }
+.actions .link { font-size: 17px; }
+.stat { margin: 0; font-size: 13px; line-height: 18px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.source { height: 420px; resize: vertical; white-space: pre; overflow: auto; tab-size: 2; font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; line-height: 19px; }
+.alert[hidden] { display: none; }
+.alert__description { white-space: pre-wrap; text-align: left; }
+
+.block { padding-top: 72px; text-align: center; }
+.block h2 { margin: 0 0 28px; font-size: 32px; line-height: 36px; font-weight: 600; letter-spacing: -0.005em; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 12px; text-align: left; }
+.grid figure { margin: 0; min-width: 0; }
+.tile { padding: 0; gap: 0; }
+.tile e-core { display: block; width: 100%; }
+.grid figcaption { margin-top: 8px; font-size: 15px; line-height: 20px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.grid figcaption span { display: block; font-size: 13px; line-height: 18px; font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; }
+.grid figcaption i { display: none; font-style: normal; }
+
+.embed { max-width: 720px; margin: 0 auto; }
+.code { margin: 0; overflow: auto; text-align: left; font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; line-height: 22px; }
+
+footer { padding: 72px 0 40px; text-align: center; }
+footer p { margin: 0; font-size: 13px; line-height: 18px; color: var(--muted); }
+
+@media (min-width: 768px) {
+  .hero { padding: 96px 0 56px; }
+  .hero h1 { font-size: 64px; line-height: 68px; }
+  .hero p { font-size: 28px; line-height: 32px; }
+  .panel { padding: 32px; }
+  .block { padding-top: 136px; }
+  .block h2 { margin-bottom: 48px; font-size: 56px; line-height: 60px; }
+  .grid { grid-template-columns: repeat(4, 1fr); gap: 16px; max-width: 1020px; margin: 0 auto; }
+  .grid figcaption i { display: inline; }
+  .embed { padding: 48px 60px; }
+  .code { font-size: 19px; line-height: 32px; }
+  footer { padding: 136px 0 56px; }
+}
+@media (min-width: 1024px) {
+  .wrap { padding: 0 90px; }
+  .studio { grid-template-columns: minmax(0, 464px) minmax(0, 1fr); gap: 24px; align-items: stretch; }
+  .studio .panel:last-child .textfield { flex: 1; }
+  .source { flex: 1; height: auto; min-height: 420px; }
+}
+
+/* элементы сцены: имена-кнопки (серые, как в HeroUI) и образец цвета; выбранный обводится, без заливки */
+.elements { display: grid; gap: 12px; }
+.elements[hidden], .elements__tools[hidden] { display: none; }
+.elements__list { display: flex; flex-wrap: wrap; gap: 8px; }
+.element { height: 32px; padding-inline: 12px; font-size: 14px; font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace; border-radius: 999px; }
+.element[aria-pressed="true"] { box-shadow: inset 0 0 0 2px currentColor; }
+.elements__tools { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.element-color { width: 36px; height: 36px; padding: 0; border: 0; border-radius: 10px; background: none; cursor: pointer; }
+.element-color:disabled { opacity: 0.4; cursor: default; }
+.element-color::-webkit-color-swatch-wrapper { padding: 0; }
+.element-color::-webkit-color-swatch { border: 0; border-radius: 10px; }
+.stage { touch-action: pan-y; }

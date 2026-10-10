@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" data-duration="3s">
+  <style>
+    .c { transform-box: fill-box; transform-origin: center; }
+    #heart  { animation: beat 1.5s ease-in-out infinite; }
+    #shadow { animation: squash 1.5s ease-in-out infinite; }
+    .mini   { animation: rise 3s linear infinite; }
+    #m2     { animation-delay: -1s; }
+    #m3     { animation-delay: -2s; }
+    @keyframes beat   { 0%, 48%, 100% { scale: 1; } 12% { scale: 1.14; } 24% { scale: 1; } 36% { scale: 1.08; } }
+    @keyframes squash { 0%, 48%, 100% { scale: 1; } 12% { scale: 1.12 1; } 24% { scale: 1; } 36% { scale: 1.06 1; } }
+    @keyframes rise   { 0% { translate: 0 0; scale: 0.3; opacity: 0; } 18% { scale: 1; opacity: 1; } 100% { translate: 0 -230px; scale: 0.6; opacity: 0; } }
+  </style>
+  <defs>
+    <linearGradient id="red" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FF6B9A"/>
+      <stop offset="1" stop-color="#E0134A"/>
+    </linearGradient>
+    <path id="mini" d="M0 26 C-10 17 -28 4 -28 -12 C-28 -22 -20 -28 -12 -28 C-6 -28 -2 -24 0 -19 C2 -24 6 -28 12 -28 C20 -28 28 -22 28 -12 C28 4 10 17 0 26 Z" fill="#FF8FB1"/>
+  </defs>
+
+  <ellipse id="shadow" class="c" cx="256" cy="446" rx="120" ry="16" fill="#000" opacity="0.16"/>
+
+  <!-- место задаёт обёртка <g>, движется и растёт сам <use> -->
+  <g transform="translate(98 372)"><use id="m1" class="c mini" href="#mini"/></g>
+  <g transform="translate(420 392)"><use id="m2" class="c mini" href="#mini"/></g>
+  <g transform="translate(262 150)"><use id="m3" class="c mini" href="#mini"/></g>
+
+  <g id="heart" class="c">
+    <path d="M256 404 C214 366 104 290 104 192 C104 134 148 96 196 96 C228 96 248 114 256 134 C264 114 284 96 316 96 C364 96 408 134 408 192 C408 290 298 366 256 404 Z"
+          fill="url(#red)" stroke="#fff" stroke-width="18" stroke-linejoin="round" paint-order="stroke"/>
+    <path d="M150 196 C150 162 172 140 200 138" fill="none" stroke="#fff" stroke-opacity="0.55" stroke-width="14" stroke-linecap="round"/>
+  </g>
+</svg>

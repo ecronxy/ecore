@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" data-duration="3s">
+  <style>
+    .c { transform-box: fill-box; transform-origin: center; }
+    #burst { animation: turn 3s linear infinite; }
+    #disc  { animation: breathe 1.5s ease-in-out infinite; }
+    .spark { animation: twinkle 1.5s ease-in-out infinite; }
+    #s2    { animation-delay: -0.5s; }
+    #s3    { animation-delay: -1s; }
+    @keyframes turn    { to { rotate: 22.5deg; } }
+    @keyframes breathe { 50% { scale: 1.04; } }
+    @keyframes twinkle { 0%, 100% { scale: 0.2; opacity: 0; } 50% { scale: 1; opacity: 1; } }
+    @keyframes wave    { from { transform: translateY(7px); } to { transform: translateY(-9px); } }
+  </style>
+  <defs>
+    <linearGradient id="violet" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8E6BFF"/>
+      <stop offset="1" stop-color="#4A27D4"/>
+    </linearGradient>
+  </defs>
+
+  <!-- лучи: у звезды 16 концов, поворот на 22.5° за цикл замыкается без шва -->
+  <polygon id="burst" class="c" fill="#FFD23F" points="256.0,16.0 295.8,55.9 347.8,34.3 369.3,86.4 425.7,86.3 425.6,142.7 477.7,164.2 456.1,216.2 496.0,256.0 456.1,295.8 477.7,347.8 425.6,369.3 425.7,425.7 369.3,425.6 347.8,477.7 295.8,456.1 256.0,496.0 216.2,456.1 164.2,477.7 142.7,425.6 86.3,425.7 86.4,369.3 34.3,347.8 55.9,295.8 16.0,256.0 55.9,216.2 34.3,164.2 86.4,142.7 86.3,86.3 142.7,86.4 164.2,34.3 216.2,55.9"/>
+
+  <g id="disc" class="c">
+    <circle cx="256" cy="256" r="178" fill="url(#violet)" stroke="#fff" stroke-width="12"/>
+    <path d="M118 214 A 146 146 0 0 1 300 116" fill="none" stroke="#fff" stroke-opacity="0.35" stroke-width="12" stroke-linecap="round"/>
+  </g>
+
+  <!-- ник: текст остаётся текстом, буквы качаются волной -->
+  <text id="name" data-slot="name" data-fit="316" data-letters="wave 0.75s ease-in-out infinite alternate" data-stagger="-0.12s"
+        x="256" y="292" text-anchor="middle" font-family="Seymour One" font-size="104"
+        fill="#fff" stroke="#24105E" stroke-width="16" stroke-linejoin="round" paint-order="stroke">swex</text>
+
+  <!-- искры: место задаёт обёртка <g>, а сама искра растёт вокруг своего центра -->
+  <g transform="translate(108 122)"><polygon id="s1" class="c spark" fill="#fff" points="0.0,-26.0 4.9,-4.9 26.0,0.0 4.9,4.9 0.0,26.0 -4.9,4.9 -26.0,0.0 -4.9,-4.9"/></g>
+  <g transform="translate(420 150) scale(0.8)"><polygon id="s2" class="c spark" fill="#fff" points="0.0,-26.0 4.9,-4.9 26.0,0.0 4.9,4.9 0.0,26.0 -4.9,4.9 -26.0,0.0 -4.9,-4.9"/></g>
+  <g transform="translate(392 404) scale(1.1)"><polygon id="s3" class="c spark" fill="#fff" points="0.0,-26.0 4.9,-4.9 26.0,0.0 4.9,4.9 0.0,26.0 -4.9,4.9 -26.0,0.0 -4.9,-4.9"/></g>
+</svg>

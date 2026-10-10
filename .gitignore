@@ -1,0 +1,16 @@
+# В этой папке лежит не только проект: в репозиторий идёт только перечисленное ниже
+/*
+!/.gitignore
+!/README.md
+!/SPEC.md
+!/LICENSE
+!/COMMERCIAL.md
+!/THIRD_PARTY.md
+!/src/
+!/bin/
+!/tools/
+!/examples/
+!/site/
+!/fonts/
+!/vendor/
+node_modules/

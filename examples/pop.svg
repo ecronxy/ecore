@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" data-duration="3s">
+  <style>
+    .c { transform-box: fill-box; transform-origin: center; }
+    #all  { animation: out 0.35s ease-in 2.65s both; }
+    #line { animation: draw 0.5s ease-out 0.7s both; }
+    .bit  { animation: fly 0.9s cubic-bezier(0.2, 0.7, 0.3, 1) 0.55s both; }
+    @keyframes letter { 0% { transform: translateY(46px) scale(0.2); opacity: 0; } 60% { transform: translateY(-12px) scale(1.12); opacity: 1; } 100% { transform: translateY(0) scale(1); opacity: 1; } }
+    @keyframes draw   { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+    @keyframes fly    { 0% { translate: 30px 0; scale: 0; opacity: 0; } 15% { scale: 1; opacity: 1; } 100% { translate: 200px 0; rotate: 220deg; scale: 0.6; opacity: 0; } }
+    @keyframes out    { to { scale: 0.7; opacity: 0; } }
+  </style>
+
+  <g id="all" class="c">
+    <!-- конфетти: один @keyframes, направление задаёт поворот обёртки -->
+    <g transform="rotate(-18 256 250)"><rect class="c bit" x="240" y="240" width="36" height="20" rx="7" fill="#FFD23F"/></g>
+    <g transform="rotate(34 256 250)"><circle class="c bit" cx="256" cy="250" r="13" fill="#3DDC97"/></g>
+    <g transform="rotate(82 256 250)"><rect class="c bit" x="240" y="240" width="36" height="20" rx="7" fill="#5B8CFF"/></g>
+    <g transform="rotate(138 256 250)"><circle class="c bit" cx="256" cy="250" r="13" fill="#FF7A1A"/></g>
+    <g transform="rotate(190 256 250)"><rect class="c bit" x="240" y="240" width="36" height="20" rx="7" fill="#3DDC97"/></g>
+    <g transform="rotate(236 256 250)"><circle class="c bit" cx="256" cy="250" r="13" fill="#FFD23F"/></g>
+    <g transform="rotate(284 256 250)"><rect class="c bit" x="240" y="240" width="36" height="20" rx="7" fill="#FF4F8B"/></g>
+    <g transform="rotate(318 256 250)"><circle class="c bit" cx="256" cy="250" r="13" fill="#5B8CFF"/></g>
+
+    <!-- слово: буквы выскакивают по очереди -->
+    <text id="word" data-slot="word" data-fit="440" data-letters="letter 0.5s ease-out both" data-stagger="0.07s"
+          x="256" y="284" text-anchor="middle" font-family="Montserrat" font-size="112"
+          fill="#fff" stroke="#FF2D6F" stroke-width="22" stroke-linejoin="round" paint-order="stroke">привет</text>
+
+    <!-- подчёркивание рисуется само: pathLength="1" и stroke-dashoffset от 1 до 0 -->
+    <path id="line" d="M92 352 C170 326 250 372 330 346 C366 334 396 338 420 350" pathLength="1" stroke-dasharray="1"
+          fill="none" stroke="#FFD23F" stroke-width="18" stroke-linecap="round"/>
+  </g>
+</svg>

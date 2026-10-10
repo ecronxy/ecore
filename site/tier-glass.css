@@ -1,0 +1,162 @@
+/* TIER iOS layer over HeroUI v3.
+   Import AFTER HeroUI:  @import "tailwindcss"; @import "@heroui/styles"; @import "./tier-glass.css";
+   or in plain HTML: heroui.min.css, then this file.
+   Only two things are ours: the glass recipe (.lg-glass) and the tile recipe (.lg-tile).
+   Everything else is HeroUI tokens. Do not add new component classes here. */
+
+/* ── 1. Theme: HeroUI tokens tuned to iOS ─────────────────────────── */
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, "Segoe UI", Roboto, sans-serif;
+  --radius: 0.75rem;                       /* 12px: iOS grouped row */
+  --field-radius: calc(var(--radius) * 1.5);
+  --background: oklch(0.967 0.003 264);    /* iOS systemGroupedBackground #F2F2F7 */
+  --foreground: oklch(0.145 0 0);
+  --surface: oklch(1 0 0);
+  --overlay: oklch(1 0 0);
+  --muted: oklch(0.55 0.01 264);           /* secondaryLabel */
+  --accent: oklch(0.62 0.21 255);          /* iOS systemBlue #007AFF */
+  --accent-foreground: oklch(1 0 0);
+  --separator: oklch(0.9 0.004 264);
+
+  --tile-bg: oklch(1 0 0);
+  --tile-border: oklch(0 0 0 / 0.06);
+  --skeleton-strong: oklch(0 0 0 / 0.07);
+  --skeleton-soft: oklch(0 0 0 / 0.045);
+}
+
+[data-theme="dark"],
+.dark {
+  color-scheme: dark;
+  --background: #0e1010;                   /* measured from the reference images */
+  --foreground: oklch(0.985 0 0);
+  --surface: #141616;                      /* tile fill, measured */
+  --overlay: #1c1e1e;
+  --muted: oklch(0.72 0.005 200);
+  --accent: oklch(0.66 0.19 255);          /* systemBlue, dark variant #0A84FF */
+  --accent-foreground: oklch(1 0 0);
+  --separator: oklch(1 0 0 / 0.08);
+  --surface-shadow: none;
+  --overlay-shadow: 0 16px 48px rgb(0 0 0 / 0.5);
+
+  --tile-bg: #141616;
+  --tile-border: rgb(255 255 255 / 0.2);
+  --skeleton-strong: rgb(255 255 255 / 0.075); /* circle #232525 on #141616 */
+  --skeleton-soft: rgb(255 255 255 / 0.045);   /* bars   #1e2020 on #141616 */
+}
+
+body { background: var(--background); color: var(--foreground); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+
+/* ── 2. Liquid Glass: ONLY the functional layer ───────────────────
+   Reference: assets/ref-glass-pill.png ("Codex" capsule), a 2x screenshot of a 27px pill.
+   Measured along the rim (30.09.2026): the rim is a SPECULAR highlight, not a ring.
+     top edge:    bright in the left third (245), fading to 90 on the right;
+     bottom edge: dim on the left (90), bright in the right third (248);
+     sides:       almost nothing (~90).
+   Light comes from the top-left and bounces off the bottom-right, like iOS 26 glass.
+   An even white ring around the whole pill (versions 1 and 2) reads as a white outline:
+   do not replace the ::before rim with a uniform border or inset hairlines.
+   The milky inner glow carries the look, the rim only catches light.
+   Put it on a HeroUI element as an extra class: <Button className="lg-glass">,
+   <Tabs.List className="lg-glass">, <Toolbar className="lg-glass">. */
+.lg-glass {
+  --lg-core: rgb(17 19 19 / 0.64);
+  position: relative;
+  isolation: isolate;
+  background: var(--lg-core);
+  -webkit-backdrop-filter: blur(14px) saturate(170%);
+  backdrop-filter: blur(14px) saturate(170%);
+  color: #fff;
+  border: 0;
+  box-shadow:
+    inset 0 0 10px 0 rgb(255 255 255 / 0.17),     /* milky edge glow */
+    inset 0 6px 7px -5px rgb(255 255 255 / 0.1),
+    inset 0 -7px 8px -5px rgb(255 255 255 / 0.14),
+    0 8px 24px rgb(0 0 0 / 0.22);                 /* lift off the content */
+}
+/* the specular rim: one 1px ring whose brightness follows the light direction */
+.lg-glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgb(255 255 255 / 0.46), rgb(255 255 255 / 0.7) 38%, rgb(255 255 255 / 0.5) 62%, rgb(255 255 255 / 0.24)) top / 100% 51% no-repeat,
+    linear-gradient(90deg, rgb(255 255 255 / 0.22), rgb(255 255 255 / 0.26) 40%, rgb(255 255 255 / 0.74) 68%, rgb(255 255 255 / 0.46)) bottom / 100% 51% no-repeat;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+.lg-glass:where(button, a, [role="button"], [role="tab"]) {
+  transition: transform 250ms cubic-bezier(.22, 1, .36, 1), background-color 120ms ease-out;
+}
+.lg-glass:where(button, a, [role="button"]):active,
+.lg-glass[data-pressed="true"] { transform: scale(0.96); }
+
+/* Tinted glass = the ONE primary action on a glass bar (HIG: colour the background, not the label). */
+.lg-glass--tint { --lg-core: color-mix(in oklch, var(--accent) 78%, transparent); }
+
+/* Clear variant over photos/video: HIG asks for a 35% dim layer under bright media. */
+.lg-glass--clear { --lg-core: rgb(0 0 0 / 0.35); }
+
+/* Light theme: same geometry, milky core, darker lift. */
+[data-theme="light"] .lg-glass,
+:root:not(.dark):not([data-theme="dark"]) .lg-glass {
+  --lg-core: rgb(255 255 255 / 0.62);
+  color: var(--foreground);
+  box-shadow:
+    inset 0 0 0 0.5px rgb(0 0 0 / 0.08),
+    inset 0 0 10px 0 rgb(255 255 255 / 0.5),
+    0 8px 24px rgb(0 0 0 / 0.1);
+}
+[data-theme="light"] .lg-glass--tint,
+:root:not(.dark):not([data-theme="dark"]) .lg-glass--tint { color: var(--accent-foreground); --lg-core: var(--accent); }
+
+@media (prefers-reduced-transparency: reduce) {
+  .lg-glass { -webkit-backdrop-filter: none; backdrop-filter: none; --lg-core: var(--overlay); }
+}
+@media (prefers-contrast: more) {
+  .lg-glass { box-shadow: inset 0 0 0 1px currentColor; }
+  .lg-glass::before { display: none; }
+}
+
+/* Scroll edge effect under a floating glass bar (HIG: instead of a solid bar background). */
+.lg-edge-top, .lg-edge-bottom { position: fixed; inset-inline: 0; height: 72px; pointer-events: none; z-index: 40; }
+.lg-edge-top    { top: 0;    background: linear-gradient(var(--background), transparent); }
+.lg-edge-bottom { bottom: 0; background: linear-gradient(transparent, var(--background)); }
+
+/* ── 3. Tile: content layer, NOT glass ─────────────────────────────
+   Reference: assets/ref-tile.png, also a 2x screenshot (tile ~68px wide in CSS).
+   Measured: fill #141616 on page #0e1010, HAIRLINE (0.5px) border ~20% white with a
+   brighter top-left, radius ~20% of width,
+   skeleton circle 33% wide at 7.5% white, bars 64% / 47% wide at 4.5% white.
+   Use on HeroUI <Card className="lg-tile"> or <Surface className="lg-tile">. */
+.lg-tile {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 20%;
+  container-type: inline-size;
+  background: var(--tile-bg);
+  border: 0;
+  box-shadow:
+    inset 0 0 0 0.5px var(--tile-border),              /* hairline, not 1px */
+    inset 0.5px 0.5px 0 0 rgb(255 255 255 / 0.08);    /* the brighter top-left edge */
+  overflow: clip;
+}
+@supports (corner-shape: squircle) {
+  .lg-tile { corner-shape: squircle; border-radius: 34%; }
+}
+.lg-tile:where(button, a, [role="button"]):active { transform: scale(0.97); transition: transform 200ms cubic-bezier(.22, 1, .36, 1); }
+
+/* Skeleton inside a tile: shown only while real content loads. */
+.lg-tile__glyph { width: 33cqi; aspect-ratio: 1; border-radius: 50%; margin: 17cqi auto 0; background: var(--skeleton-strong); }
+.lg-tile__line  { height: 7.5cqi; border-radius: 99px; margin: 8cqi auto 0; background: var(--skeleton-soft); width: 64cqi; }
+.lg-tile__line + .lg-tile__line { width: 47cqi; margin-top: 7cqi; }
+
+@media (prefers-reduced-motion: reduce) {
+  .lg-glass, .lg-tile { transition: none !important; }
+}

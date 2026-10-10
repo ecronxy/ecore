@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="ru" class="dark" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>eCore</title>
+<script>if (matchMedia('(prefers-color-scheme: light)').matches) { document.documentElement.className = 'light'; document.documentElement.dataset.theme = 'light'; }</script>
+<!-- heroui.min.css: @heroui/styles 3.2.6, лежит рядом, чтобы первый показ не ждал чужого сервера -->
+<link rel="stylesheet" href="heroui.min.css">
+<link rel="stylesheet" href="tier-glass.css">
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+<main class="wrap">
+
+  <header class="hero">
+    <h1>eCore</h1>
+    <p>впиши слово, получи стикер</p>
+  </header>
+
+  <div class="studio">
+    <section class="card card--default panel" aria-label="стикер">
+      <div class="tabs" data-orientation="horizontal">
+        <div class="tabs__list-container">
+          <div class="tabs__list" id="tabs" role="tablist" aria-label="пример" data-orientation="horizontal">/*TABS*/</div>
+        </div>
+      </div>
+
+      <div class="stage" id="stage"></div>
+
+      <!-- элементы сцены: имя = id из исходника. Цвет меняется сразу, перенос — тянуть элемент по сцене -->
+      <div class="elements" id="elements" hidden>
+        <div class="elements__list" id="element-list" role="group" aria-label="элементы"></div>
+        <div class="elements__tools" id="element-tools" hidden>
+          <input class="element-color" id="element-color" type="color" aria-label="цвет элемента">
+          <button class="button button--secondary" id="element-reset" type="button">сбросить</button>
+          <span class="label" id="element-hint">тяните по сцене, чтобы сдвинуть</span>
+        </div>
+      </div>
+
+      <div class="textfield" id="slot-row">
+        <label class="label" for="slot">текст</label>
+        <input class="input input--full-width field-lg" id="slot" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="40">
+      </div>
+
+      <div class="actions">
+        <button class="button button--primary cta" id="get-tgs" type="button">скачать .tgs</button>
+        <a class="link" id="get-ecr" href="#" role="button">скачать .ecr ›</a>
+      </div>
+      <p class="stat" id="stat" aria-live="polite">&nbsp;</p>
+    </section>
+
+    <section class="card card--default panel" aria-label="исходник">
+      <div class="textfield">
+        <label class="label" for="source">исходник: svg и css</label>
+        <textarea class="textarea textarea--full-width source" id="source" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off"></textarea>
+      </div>
+      <div class="alert alert--danger" id="error" role="alert" hidden>
+        <div class="alert__content"><div class="alert__title">не собралось</div><div class="alert__description" id="error-text"></div></div>
+      </div>
+      <div class="alert alert--default" id="notes" hidden>
+        <div class="alert__content"><div class="alert__title">замечания</div><div class="alert__description" id="notes-text"></div></div>
+      </div>
+    </section>
+  </div>
+
+  <!--TGS-->
+  <section class="block">
+    <h2>готовые tgs тоже играет</h2>
+    <div class="grid">/*GIFTS*/</div>
+  </section>
+  <!--/TGS-->
+
+  <section class="block">
+    <h2>две строки в проекте</h2>
+    <div class="card card--default panel embed">
+      <pre class="code"><code>&lt;script src="ecore.js"&gt;&lt;/script&gt;
+&lt;e-core src="sticker.ecr"&gt;&lt;/e-core&gt;</code></pre>
+    </div>
+  </section>
+
+  <!--TGS-->
+  <footer>
+    <p>модели подарков: thanks to @GiftChanges for this API (api.changes.tg)</p>
+  </footer>
+  <!--/TGS-->
+</main>
+
+<script>
+/*PLAYER*/
+</script>
+<script>
+window.ECORE = /*DATA*/;
+</script>
+<script src="app.js"></script>
+</body>
+</html>
