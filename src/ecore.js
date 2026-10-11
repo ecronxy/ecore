@@ -1495,7 +1495,10 @@
     const target = rs.context && rs.context.canvas ? rs.context.canvas : params.container;
     let source = params.animationData ? fromLottie(params.animationData) : params.path;
     if (typeof source === 'string' && !/\.ecr(\?|#|$)/i.test(source)) source = lottieUrl(source);
-    return new Animation(target, source, { loop: params.loop === undefined ? true : params.loop, autoplay: params.autoplay });
+    // холст из rendererSettings.context сохраняет свой размер, как у lottie: по нему выбирают точки и миниатюры;
+    // backend — необязательный параметр eCore (2d, gl, soft): редактор берёт 2d для пикера и миниатюр
+    const own = rs.context && rs.context.canvas;
+    return new Animation(target, source, { loop: params.loop === undefined ? true : params.loop, autoplay: params.autoplay, size: own ? own.width : 0, backend: params.backend });
   };
 
   // <e-core src="a.ecr" still="a.still.ecr" style="width:160px"></e-core>
