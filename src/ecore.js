@@ -878,7 +878,8 @@
     // слой-шейп: w — матрица слоя в единицах сцены, alpha — непрозрачность слоя вместе с вложенностью
     _shapes(l, w, alpha) {
       const S = this.S, f = this.f, ctx = this.ctx, cm = l.cm, co = l.co, v = V2;
-      this.np = 0;
+      // кадр для попаданий (rec): точки всех слоёв остаются в PTS до конца кадра, их читают контуры
+      if (!this.rec) this.np = 0;
       cm[0] = w[0] * S; cm[1] = w[1] * S; cm[2] = w[2] * S; cm[3] = w[3] * S; cm[4] = w[4] * S; cm[5] = w[5] * S;
       co[0] = alpha;
       for (let c = 1; c < l.chains.length; c++) {
@@ -911,6 +912,8 @@
         }
         if (st.d && npc) npc = this._dash(st, npc, rms);
         if (!npc) continue;
+        // контуры стиля ровно такими, какими они нарисованы (с обрезкой и пунктиром): uid, полутолщина обводки, правило, куски
+        if (this.rec && !this.mute) { const r = this.rec; r.push(st.uid, hw, st.rule === 2 ? 1 : 0, npc); for (let k = 0; k < npc * 3; k++) r.push(PC[k]); }
 
         if (ctx) {
           ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.beginPath();
@@ -994,35 +997,35 @@
     pick(i, size, x, y) { return this._hitsAt(i, size, x, y, 1)[0] || null; }
     // все стили под точкой, сверху вниз, без повторов: редактор выбирает группу, а не только верхний слой
     pickAll(i, size, x, y) { return this._hitsAt(i, size, x, y, Infinity); }
-    // кадр для попаданий считается один раз и делится между кликами, наведением и подсветкой
+    // Кадр для попаданий считается один раз и делится между кликами, наведением и подсветкой.
+    // Рабочие буферы (PTS, SEG, INST, IM) общие для всех сцен страницы: любой другой кадр их перепишет,
+    // поэтому кадр попаданий копируется в свои массивы сцены.
     _ensure(i, size) {
-      if (this.prepI === i && this.prepS === size && this.prepF === this.frameId) return;
-      this.frame(i, size, null); this.prepI = i; this.prepS = size; this.prepF = this.frameId;
+      if (this.hp && this.prepI === i && this.prepS === size && this.prepF === this.frameId) return;
+      this.np = 0; this.rec = [];
+      try { this.frame(i, size, null); } finally { this.hr = this.rec; this.rec = null; }
+      this.hp = PTS.slice(0, this.np * 2); this.hs = SEG.slice(0, this.ns * 4); this.hi = INST.slice(0, this.ni * INST_F); this.hm = IM.slice(0, this.ni * 4); this.hn = this.ni;
+      this.prepI = i; this.prepS = size; this.prepF = this.frameId;
     }
-    // контуры стилей на кадре i в пикселях холста шириной size: [{ uid, pts: Float32Array(x, y, ...), closed }]
-    // для подсветки выделения: без перебора пикселей
+    // Контуры стилей на кадре i в пикселях холста шириной size, как они нарисованы (обрезка, пунктир, несколько вхождений
+    // одной композиции): [{ uid, pts: Float32Array(x, y, ...), closed, w, evenodd }]. w — полутолщина обводки в пикселях
+    // (0 у заливки): обводку подсвечивают линией этой толщины, а не заливкой контура. Для подсветки выделения без перебора пикселей
     outlines(uids, i, size) {
       this._ensure(i, size);
-      const out = [];
-      for (const uid of uids) {
-        const st = this.styles[uid]; if (!st) continue;
-        const l = st.layer;
-        for (const g of st.geoms) {
-          if (l.gst[g] === undefined || l.gst[g] < 0) continue;
-          const pb = l.gst[g], k = l.gpc[g];
-          for (let j = 0; j < k; j++) {
-            const start = l.pieces[pb + j * 3], cnt = l.pieces[pb + j * 3 + 1];
-            const pts = new Float32Array(cnt * 2);
-            for (let q = 0; q < cnt; q++) { pts[q * 2] = PTS[(start + q) * 2]; pts[q * 2 + 1] = PTS[(start + q) * 2 + 1]; }
-            out.push({ uid, pts, closed: !l.pieces[pb + j * 3 + 2] });
-          }
+      const want = uids instanceof Set ? uids : new Set(uids), r = this.hr, P = this.hp, out = [];
+      for (let o = 0; o < r.length;) {
+        const uid = r[o], w = r[o + 1], evenodd = r[o + 2] === 1, n = r[o + 3]; o += 4;
+        if (want.has(uid)) for (let k = 0; k < n; k++) {
+          const start = r[o + k * 3], cnt = r[o + k * 3 + 1], pts = P.slice(start * 2, (start + cnt) * 2);
+          out.push({ uid, pts, closed: !r[o + k * 3 + 2], w, evenodd });
         }
+        o += n * 3;
       }
       return out;
     }
     _hitsAt(i, size, x, y, max) {
-      this._ensure(i, size); const out = [], seen = new Set();
-      for (let n = this.ni - 1; n >= 0 && out.length < max; n--) {
+      this._ensure(i, size); const out = [], seen = new Set(), INST = this.hi, IM = this.hm, SEG = this.hs;
+      for (let n = this.hn - 1; n >= 0 && out.length < max; n--) {
         const o = n * INST_F; if (IM[n * 4 + 3] || IM[n * 4 + 2] < 0 || x < INST[o] || x > INST[o + 2] || y < INST[o + 1] || y > INST[o + 3]) continue;
         const s0 = IM[n * 4], s1 = s0 + IM[n * 4 + 1], mode = INST[o + 6]; let hit = false;
         if (mode === 2) {

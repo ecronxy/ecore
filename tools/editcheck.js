@@ -136,4 +136,32 @@ ok('outlines: контур стиля содержит точку попадан
   assert.ok(again.length === hit.length, 'повторный пикер на том же кадре даёт то же');
 });
 
+// 8. Несколько слоёв: точки каждого слоя живут до конца кадра. Раньше буфер точек обнулялся на каждом слое,
+// и контур нижнего слоя собирался из точек верхнего (подсветка и рамка выделения уезжали на чужую деталь).
+// Между попаданием и контуром рисуется другая сцена: общие буферы перезаписываются, а ответы не меняются.
+ok('outlines: каждый слой свой, чужой кадр между вызовами не мешает', () => {
+  const lo = layer([{ ty: 'gr', nm: 'низ', np: 2, it: [rect(120, 120, 80, 80), fill([1, 0, 0, 1], 'кр'), tr([0, 0])] }], { ind: 2, nm: 'низ' });
+  const hi = layer([{ ty: 'gr', nm: 'верх', np: 2, it: [ell(380, 380, 120, 60), fill([0, 0, 1, 1], 'си'), tr([0, 0])] }], { ind: 1, nm: 'верх' });
+  const sc = build(doc([hi, lo]));
+  const a = sc.pickAll(0, 512, 120, 120), b = sc.pickAll(0, 512, 380, 380);
+  assert.ok(a.length && b.length && a[0].uid !== b[0].uid, 'два слоя — два стиля');
+  const other = build(doc([layer([{ ty: 'gr', nm: 'x', np: 2, it: [rect(256, 256, 500, 500), fill([0, 1, 0, 1]), tr([0, 0])] }])]));
+  frameOf(other, 512);   // чужой кадр переписывает общие буферы
+  const box = (uid) => { const o = sc.outlines([uid], 0, 512); assert.ok(o.length, 'контур есть'); const p = Array.from(o[0].pts), xs = p.filter((_, i) => i % 2 === 0), ys = p.filter((_, i) => i % 2 === 1); return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]; };
+  const ba = box(a[0].uid), bb = box(b[0].uid);
+  assert.ok(Math.abs(ba[0] - 80) < 2 && Math.abs(ba[2] - 160) < 2 && Math.abs(ba[1] - 80) < 2 && Math.abs(ba[3] - 160) < 2, 'контур нижнего слоя на месте: ' + ba);
+  assert.ok(Math.abs(bb[0] - 320) < 2 && Math.abs(bb[2] - 440) < 2 && Math.abs(bb[1] - 350) < 2 && Math.abs(bb[3] - 410) < 2, 'контур верхнего слоя на месте: ' + bb);
+  assert.ok(sc.pickAll(0, 512, 120, 120)[0].uid === a[0].uid, 'попадание после чужого кадра то же');
+});
+
+// 9. Обводка: в контуре есть полутолщина, у заливки — 0; правило evenodd передаётся
+ok('outlines: толщина обводки и правило заливки', () => {
+  const st = { ty: 'st', c: K([1, 1, 1, 1]), o: K(100), w: K(20), lc: 2, lj: 2, nm: 'об' };
+  const j = doc([layer([{ ty: 'gr', nm: 'g', np: 3, it: [rect(256, 256, 200, 200), st, Object.assign(fill([1, 0, 0, 1], 'зал'), { r: 2 }), tr([0, 0])] }])]);
+  const sc = build(j), outs = sc.outlines(sc.styles.map((s) => s.uid), 0, 512);
+  const s = outs.find((o) => o.w > 0), f = outs.find((o) => o.w === 0);
+  assert.ok(s && Math.abs(s.w - 10) < 0.5, 'полутолщина обводки 10: ' + (s && s.w));
+  assert.ok(f && f.evenodd === true, 'заливка evenodd');
+});
+
 console.log('\n' + pass + ' проверок прошли');
