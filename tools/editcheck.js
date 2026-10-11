@@ -121,4 +121,19 @@ check('маска: расширение -40 сужает контур', [maskOf(
 check('маска: вычитание вырезает квадрант', [maskOf('a', maskPath(0, 0, 512, 512)), maskOf('s', maskPath(0, 0, 256, 256))], [[32, 32, 0, 2], [100, 100, 255, 2]], true);
 check('маска без hasMask не применяется', [maskOf('a', maskPath(0, 0, 256, 256))], [[96, 96, 255, 2]], false);
 
+// 7. контуры для подсветки совпадают с попаданиями: точка внутри контура попадает в его стиль, кадр не пересчитывается дважды
+ok('outlines: контур стиля содержит точку попадания', () => {
+  const j = doc([layer([{ ty: 'gr', nm: 'g', np: 2, it: [rect(256, 256, 200, 200), fill([1, 0, 0, 1], 'кр'), tr([0, 0])] }])]);
+  const sc = build(j);
+  const hit = sc.pickAll(0, 512, 256, 256);
+  assert.ok(hit.length >= 1, 'попадание в центре есть');
+  const outs = sc.outlines([hit[0].uid], 0, 512);
+  assert.ok(outs.length >= 1 && outs[0].pts.length >= 8, 'контур есть: ' + outs.length);
+  // прямоугольник 200×200 в центре 512-холста: вершины на 156 и 356
+  const xs = Array.from(outs[0].pts).filter((_, i) => i % 2 === 0), ys = Array.from(outs[0].pts).filter((_, i) => i % 2 === 1);
+  assert.ok(Math.min(...xs) > 150 && Math.max(...xs) < 362 && Math.min(...ys) > 150 && Math.max(...ys) < 362, 'контур в нужных пределах');
+  const again = sc.pickAll(0, 512, 260, 260);
+  assert.ok(again.length === hit.length, 'повторный пикер на том же кадре даёт то же');
+});
+
 console.log('\n' + pass + ' проверок прошли');

@@ -994,8 +994,34 @@
     pick(i, size, x, y) { return this._hitsAt(i, size, x, y, 1)[0] || null; }
     // все стили под точкой, сверху вниз, без повторов: редактор выбирает группу, а не только верхний слой
     pickAll(i, size, x, y) { return this._hitsAt(i, size, x, y, Infinity); }
+    // кадр для попаданий считается один раз и делится между кликами, наведением и подсветкой
+    _ensure(i, size) {
+      if (this.prepI === i && this.prepS === size && this.prepF === this.frameId) return;
+      this.frame(i, size, null); this.prepI = i; this.prepS = size; this.prepF = this.frameId;
+    }
+    // контуры стилей на кадре i в пикселях холста шириной size: [{ uid, pts: Float32Array(x, y, ...), closed }]
+    // для подсветки выделения: без перебора пикселей
+    outlines(uids, i, size) {
+      this._ensure(i, size);
+      const out = [];
+      for (const uid of uids) {
+        const st = this.styles[uid]; if (!st) continue;
+        const l = st.layer;
+        for (const g of st.geoms) {
+          if (l.gst[g] === undefined || l.gst[g] < 0) continue;
+          const pb = l.gst[g], k = l.gpc[g];
+          for (let j = 0; j < k; j++) {
+            const start = l.pieces[pb + j * 3], cnt = l.pieces[pb + j * 3 + 1];
+            const pts = new Float32Array(cnt * 2);
+            for (let q = 0; q < cnt; q++) { pts[q * 2] = PTS[(start + q) * 2]; pts[q * 2 + 1] = PTS[(start + q) * 2 + 1]; }
+            out.push({ uid, pts, closed: !l.pieces[pb + j * 3 + 2] });
+          }
+        }
+      }
+      return out;
+    }
     _hitsAt(i, size, x, y, max) {
-      this.frame(i, size, null); const out = [], seen = new Set();
+      this._ensure(i, size); const out = [], seen = new Set();
       for (let n = this.ni - 1; n >= 0 && out.length < max; n--) {
         const o = n * INST_F; if (IM[n * 4 + 3] || IM[n * 4 + 2] < 0 || x < INST[o] || x > INST[o + 2] || y < INST[o + 1] || y > INST[o + 3]) continue;
         const s0 = IM[n * 4], s1 = s0 + IM[n * 4 + 1], mode = INST[o + 6]; let hit = false;
