@@ -248,6 +248,7 @@
     // Статичные значения округляются до тысячных; у градиента (type 5) до миллионных: его стопы бывают ближе тысячной,
     // и слипшиеся стопы дали бы другую картинку
     function prop(p, D, pad = 0, spatial = false, type = 2) {
+      if (p && typeof p.x === 'string') warn('выражения (x) не считаются: берётся значение k');
       const k = type === 5 ? 1e6 : 1000, one = (a) => { a = a.map((x) => Math.round(x * k) / k); return D === 1 ? a[0] : a; };
       if (!p || p.k === undefined) return one(fit([], D, pad));
       if (!isAnim(p)) return one(fit(p.k, D, pad));
@@ -341,8 +342,18 @@
       }
     }
 
-    // композиции: корень первым, вложенные по мере встречи. В обычном файле каждая хранится один раз,
-    // в стоп-кадре у каждого вхождения своя копия: значения берутся в её собственном времени
+    // маски слоя: путь маски идёт в общие пути и геометрии слоя (геометрия без своего трансформа, chain 0 = слой).
+    // Режим, инверсия, непрозрачность и расширение читаются как в lottie-web (SVG); путь может быть анимированным
+    function masksOf(list, S, lsrc) {
+      const out = [];
+      list.forEach((m) => {
+        if (!m || m.mode === 'n') return;
+        const mode = { a: 1, s: 2, i: 3 }[m.mode] || 1;
+        out.push({ m: mode, i: m.inv ? 1 : 0, o: prop(m.o, 1, 100), x: prop(m.x, 1), g: S.ge.length / 3 });
+        S.ge.push(S.pa.push(pathOf({ ks: m.pt })) - 1, 0, 0);
+      });
+      return out;
+    }
     const comps = [], compIds = new Map(), assets = new Map();
     for (const a of j.assets || []) if (a && a.layers) assets.set(a.id, a);
     function comp(layers, key, src, depth) {
@@ -357,6 +368,8 @@
       comps[ci] = layers.map((l, li) => {
         f0 = mine;
         const L = { ks: xform(l.ks || {}) }, lsrc = src + '/' + li;
+        if (l.ddd === 1) warn('трёхмерный слой (ddd) рисуется плоско');
+        if (l.ao === 1) warn('авто-ориентация (ao) не поддержана');
         if (SRC) L.src = lsrc;
         if (l.ty !== 4) L.ty = l.ty === 0 ? 0 : 3;
         const ip = lround(l.ip), op = lround(l.op);
@@ -367,6 +380,9 @@
         if (l.ty === 4) {
           const S = { gx: [], cn: [], ch: [], pa: [], ge: [], tr: [], sy: [], cs: [] };
           if (!L.hd) walk(l.shapes || [], 0, [], [], S, '', '', '', lsrc + '/shapes');
+          // маски читаются при hasMask, как в спецификации Lottie и rlottie: без флага masksProperties — лишние данные
+          if (!L.hd && l.hasMask && Array.isArray(l.masksProperties) && l.masksProperties.length) { const mk = masksOf(l.masksProperties, S, lsrc); if (mk.length) L.mk = mk; }
+          else if (Array.isArray(l.masksProperties) && l.masksProperties.length && !l.hasMask) warn('маски без hasMask игнорируются');
           S.sy = S.sy.filter((s) => s.ge.length);
           for (const k in S) if (S[k].length) L[k] = S[k];
         } else if (l.ty === 0) {
@@ -380,7 +396,7 @@
             else { if (st) L.st = st; if (sr !== 1) L.sr = sr; L.rf = comp(a.layers, l.refId, 'assets/' + l.refId + '/layers', depth + 1); }
           }
         } else if (l.ty !== 3) warn('layer type ' + l.ty);
-        if (l.masksProperties && l.masksProperties.length) warn('mask');
+        if (l.masksProperties && l.masksProperties.length && l.ty !== 4) warn('маска у слоя типа ' + l.ty + ' не поддержана');
         if (l.ef && l.ef.length) warn('effects (Telegram их не рисует)');
         if (l.bm) warn('blend mode (Telegram его не рисует)');
         return L;

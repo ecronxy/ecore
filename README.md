@@ -117,6 +117,27 @@ anim.bounds((style) => style.layer.src === hit.layer); // рамка для вы
 В своих исходниках элементам дают имена, и тогда хватает имени: `anim.names()`, `anim.set('heart', { color, x, y })`,
 `anim.reset('heart')`. Подробнее в разделе «Слои, цвета и перенос» в [SPEC.md](SPEC.md).
 
+Для редактора, который пишет документ Lottie, есть ещё четыре вызова:
+
+```js
+anim.pickAll(x, y);                                                   // все попадания под точкой, сверху вниз: [{ src, layer, name, groups }]
+anim.patch(src, { rotate: 30, scale: [1.2, 1], opacity: 0.5 });       // поворот в градусах, масштаб и прозрачность слоя или группы относительно файла
+anim.patch(gradientSrc, { stops: ['#ff0000', '#00ff00'] });           // цвета стопов градиента по порядку; позиции и прозрачность из файла
+anim.worldAt(src);                                                    // { m: [a, b, c, d, e, f], o }: матрица узла в единицах сцены, null, если на кадре не нарисован
+anim.nodeBounds(src);                                                 // рамка узла в координатах экрана; маска рамку не режет
+```
+
+`patch` с `null` сбрасывает overlay узла. Поворот, масштаб и прозрачность задаются поверх файла, поэтому
+правку, которую редактор потом записывает в JSON, нужно считать от исходного значения.
+
+## Совместимость с lottie-web
+
+`ECore.loadAnimation({ container, animationData, loop, autoplay, rendererSettings: { context } })` принимает
+параметры `lottie.loadAnimation`; `path` указывает на `.ecr`, `.json` или `.tgs`. Есть `goToAndStop`, `goToAndPlay`,
+`playSegments`, `setSpeed`, `setDirection`, `totalFrames`, `currentFrame`, `getDuration` и события `enterFrame`,
+`loopComplete`, `complete`, `DOMLoaded`, `data_ready`, `error` через `on` или `addEventListener`.
+`renderer: 'svg'` не поддерживается: рисуется canvas.
+
 ## Командная строка
 
 ```
@@ -162,6 +183,7 @@ node tools/check.js  examples/nick.svg,sticker.tgs 256           # плеер в
 node tools/native.js examples/nick.svg 256                       # компилятор против самого браузера
 node tools/bench.js  examples/nick.svg,sticker.tgs 256           # мс на кадр с синхронизацией GPU, BACKEND=gl|2d
 node tools/selftest.js examples/heart.svg                        # перекраска и перенос через set() совпадают с исходником
+node tools/editcheck.js                                          # пикер, патч поворота, масштаба и стопов, worldAt, рамка: эталон — правка в JSON
 node tools/pagetest.js http://127.0.0.1:8080/ --gl               # страница в браузере: элементы, цвет, перенос, плавность
 ```
 
@@ -186,7 +208,13 @@ fonts/ vendor/   чужие файлы для страницы и проверо
 
 ## Чего ядро не умеет
 
-- Маски слоя (`masksProperties`), повторитель (`rp`), звезда (`sr`) и time remap не рисуются.
+- Маски слоя (`masksProperties`) читаются при `hasMask`. Режимы «добавить», «вычесть», «пересечь», инверсия, непрозрачность,
+  расширение и сужение действуют как в lottie-web (SVG). rlottie (Telegram) инверсию, непрозрачность и расширение не применяет,
+  поэтому файл с такими масками в Telegram выглядит иначе, чем в ядре. Режимы «осветлить» и «разность» рисуются как
+  «добавить»: так же, как lottie-web (SVG); точная формула «разности» (исключающее ИЛИ) не реализована.
+  Маска не режет рамку `nodeBounds` и пикер: клик вне маски попадёт в содержимое.
+- Повторитель (`rp`), звезда (`sr`), time remap, текстовые и картиночные слои не рисуются.
+  Трёхмерный слой (`ddd`) и авто-ориентация (`ao`) рисуются плоско и без поворота. Выражения (`x`) не считаются.
   `import` и `conform` называют такие файлы.
 - Маска по яркости (`tt` 3 и 4) написана, но с rlottie не сверена: проверить было не на чем.
 - Плеер есть для браузера и Node. Версий под iOS и Android нет, поэтому заменить движок внутри приложений Telegram он не может.

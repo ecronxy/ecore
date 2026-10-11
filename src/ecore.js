@@ -20,7 +20,7 @@
   let SEG2 = new Float32Array(SEGW * SEG_ROWS * 4), ROWT = new Float32Array(SEGW * ROW_ROWS * 4), RC = new Int32Array(256), BN = 0, RN = 0;
   let PTS = new Float32Array(1 << 16), LEN = new Float32Array(1 << 15), PC = new Int32Array(3 * 256), PC2 = new Int32Array(3 * 256), CMD = new Float64Array(3 * 64);
   const V2 = new Float32Array(8), GV = new Float32Array(8), PV = new Float32Array(160), DV = new Float32Array(32);
-  let CTRL = new Float32Array(4096), Q = new Float64Array(4096);
+  let CTRL = new Float32Array(4096), Q = new Float64Array(4096), GOV = new Float32Array(64);
   const TD = new TextDecoder();
   const Z1 = Float32Array.of(0), Z2 = Float32Array.of(0, 0), O100 = Float32Array.of(100), S100 = Float32Array.of(100, 100), ONE4 = Float32Array.of(1, 1, 1, 1);
   const DRAW = 0, PUSH = 1, POP = 2, POPM = 3;
@@ -273,6 +273,12 @@
     }
     return c;
   }
+  // имена групп, в которые входит цепочка c: от ближней к дальней, для выбора «сверху вниз» в редакторе
+  const chainGroups = (l, c) => { const out = []; for (; c > 0; c = l.chains[c][0]) if (l.chainSrc[c]) out.push(l.chainSrc[c]); return out; };
+  // overlay слоя или группы: поворот (градусы), масштаб (число или [x, y]) и прозрачность (0..1) заменяют прежние; null сбрасывает
+  const setOv = (t, p) => { const sc = p && p.scale !== undefined ? (Array.isArray(p.scale) ? p.scale : [p.scale, p.scale]) : [1, 1]; t.dr = p && p.rotate ? +p.rotate || 0 : 0; t.dsx = +sc[0] || 0; t.dsy = +sc[1] || 0; t.dop = p && p.opacity !== undefined ? +p.opacity : 1; };
+  // цвета стопов градиента по порядку: позиции и прозрачность остаются из файла
+  const stopColors = (cols, n) => { if (!Array.isArray(cols) || cols.length !== n) throw new Error('ecore: у градиента ' + n + ' стопов, передано ' + (cols ? cols.length : 0)); const out = new Float32Array(3 * n); cols.forEach((c, i) => { const v = toRgba(c); out[i * 3] = v[0]; out[i * 3 + 1] = v[1]; out[i * 3 + 2] = v[2]; }); return out; };
   const css = (r, g, b, a) => 'rgba(' + Math.round(r * 255) + ',' + Math.round(g * 255) + ',' + Math.round(b * 255) + ',' + (a < 0 ? 0 : a > 1 ? 1 : a) + ')';
   const hexOf = (c) => '#' + [c[0], c[1], c[2]].map((x) => Math.round(x * 255).toString(16).padStart(2, '0')).join('');
   // цвет: '#rgb', '#rrggbb', '#rrggbbaa' или массив [r, g, b, a] в долях 0..1
@@ -331,7 +337,7 @@
       const NE = (this.names = H.names || []).length;
       this.ovArr = new Array(NE).fill(null); this.moves = new Uint8Array(NE); this.paint = new Uint8Array(NE); this.color = new Array(NE).fill(null);
       const P = (p, def) => (p === undefined ? { t: -1, v: def } : typeof p === 'number' ? { t: -1, v: Float32Array.of(p) } : Array.isArray(p) ? { t: -1, v: Float32Array.from(p) } : { t: off[p.t], v: null });
-      const X = (k) => { const o = { a: P(k.a, Z2), s: P(k.s, S100), r: P(k.r, Z1), o: P(k.o, O100), split: k.px !== undefined, dx: 0, dy: 0 }; if (o.split) { o.px = P(k.px, Z1); o.py = P(k.py, Z1); } else o.p = P(k.p, Z2); return o; };
+      const X = (k) => { const o = { a: P(k.a, Z2), s: P(k.s, S100), r: P(k.r, Z1), o: P(k.o, O100), split: k.px !== undefined, dx: 0, dy: 0, dr: 0, dsx: 1, dsy: 1, dop: 1 }; if (o.split) { o.px = P(k.px, Z1); o.py = P(k.py, Z1); } else o.p = P(k.p, Z2); return o; };
       let maxCtrl = 64; this.styles = []; this.nodes = new Map();
       this.comps = (H.comps || []).map((layers) => ({ layers, complex: layers.length > 1 }));
       for (const C of this.comps) for (const l of C.layers) {
@@ -356,9 +362,11 @@
         });
         l.trims = (l.tr || []).map((t) => ({ s: P(t.s, Z1), e: P(t.e, O100), o: P(t.o, Z1) }));
         l.geoms = []; const ge = l.ge || []; for (let i = 0; i < ge.length; i += 3) l.geoms.push({ p: ge[i], xf: ge[i + 1], tm: ge[i + 2] - 1 });
+        l.masks = (l.mk || []).map((m) => ({ mode: m.m, inv: m.i, o: P(m.o, O100), x: P(m.x, Z1), g: m.g }));
         l.gpc = new Int32Array(l.geoms.length); l.gst = new Int32Array(l.geoms.length); l.pieces = [];
+        l.chainSrc = []; for (let i = 0; i < (l.cs || []).length; i += 2) l.chainSrc[l.cs[i]] = l.cs[i + 1];
         l.styles = (l.sy || []).map((s) => {
-          const st = { k: s.k || 0, rule: s.ru === 2 ? 2 : 1, o: P(s.o, O100), xf: s.xf, geoms: s.ge, nm: s.nm === undefined ? -1 : s.nm, uid: this.styles.length, src: s.src || '', layer: l, ov: null, g: null, c: null, css: null, d: null };
+          const st = { k: s.k || 0, rule: s.ru === 2 ? 2 : 1, o: P(s.o, O100), xf: s.xf, geoms: s.ge, nm: s.nm === undefined ? -1 : s.nm, uid: this.styles.length, src: s.src || '', layer: l, ov: null, g: null, c: null, css: null, d: null, groups: chainGroups(l, s.xf) };
           this.styles.push(st);
           if (st.k) { st.w = P(s.w, Z1); st.lc = s.lc || 2; st.lj = s.lj || 2; st.ml = s.ml === undefined ? 4 : s.ml; if (s.d) st.d = s.d.map((v) => P(v, Z1)); }
           if (s.g) {
@@ -394,8 +402,14 @@
     // { x, y }: сдвиг слоя или группы в единицах сцены; { color }: цвет заливки или обводки; null сбрасывает
     patch(src, p) {
       const nd = this.nodes.get(src); if (!nd) return false;
-      if (nd.style) { if (p === null || p.color !== undefined) nd.style.ov = p && p.color ? toRgba(p.color) : null; return true; }
+      if (nd.style) {
+        const st = nd.style;
+        if (p === null || p.color !== undefined) st.ov = p && p.color ? toRgba(p.color) : null;
+        if (st.g && (p === null || p.stops !== undefined)) { st.g.ov = p && p.stops ? stopColors(p.stops, st.g.n) : null; st.g.ok = false; st.g.cg = null; }
+        return true;
+      }
       const l = nd.layer, x = p ? +p.x || 0 : 0, y = p ? +p.y || 0 : 0;
+      setOv(nd.chain ? l.gx[l.chains[nd.chain][1]] : l.ks, p);
       if (!nd.chain) { l.ks.dx = x; l.ks.dy = y; return true; }
       if (!l.cdev) l.cdev = new Float32Array(2 * l.chains.length);
       l.cdev[nd.chain * 2] = x; l.cdev[nd.chain * 2 + 1] = y;
@@ -458,11 +472,11 @@
       const v = V2; let px, py;
       if (x.split) { px = this._num(x.px); py = this._num(x.py); } else { this._vec(x.p, v); px = v[0]; py = v[1]; }
       this._vec(x.a, v); const ax = v[0], ay = v[1];
-      this._vec(x.s, v); const sx = v[0] * 0.01, sy = v[1] * 0.01;
-      const r = this._num(x.r) * 0.017453292519943295, c = Math.cos(r), s = Math.sin(r);
+      this._vec(x.s, v); const sx = v[0] * 0.01 * x.dsx, sy = v[1] * 0.01 * x.dsy;
+      const r = (this._num(x.r) + x.dr) * 0.017453292519943295, c = Math.cos(r), s = Math.sin(r);
       const A = c * sx, B = s * sx, C = -s * sy, Dd = c * sy;
       m[o] = A; m[o + 1] = B; m[o + 2] = C; m[o + 3] = Dd; m[o + 4] = px + x.dx - (A * ax + C * ay); m[o + 5] = py + x.dy - (B * ax + Dd * ay);
-      return this._num(x.o) * 0.01;
+      return this._num(x.o) * 0.01 * x.dop;
     }
     // матрица слоя в координатах корня: цепочка родителей своей композиции, дальше матрица слоя-вхождения (base)
     _world(C, l, base, stamp) {
@@ -653,9 +667,17 @@
     }
 
     // строка LUT градиента: 256 RGBA
+    // значения стопов градиента на кадре: из файла или дорожки; перекрашенные цвета из overlay подменяются здесь
+    _stopK(g) {
+      let k = g.k.v; if (g.k.t >= 0) { this._track(g.k.t, this.f, CTRL); k = CTRL; }
+      if (!g.ov) return k;
+      if (GOV.length < g.len) GOV = new Float32Array(g.len * 2);
+      GOV.set(k.subarray(0, g.len)); for (let i = 0; i < g.n; i++) { GOV[i * 4 + 1] = g.ov[i * 3]; GOV[i * 4 + 2] = g.ov[i * 3 + 1]; GOV[i * 4 + 3] = g.ov[i * 3 + 2]; }
+      return GOV;
+    }
     _lutRow(g, row) {
       if ((row + 1) * 1024 > this.lut.length) { const n = new Uint8ClampedArray(Math.max(this.lut.length * 2, (row + 1) * 1024)); n.set(this.lut); this.lut = n; }
-      let k = g.k.v; if (g.k.t >= 0) { this._track(g.k.t, this.f, CTRL); k = CTRL; }
+      const k = this._stopK(g);
       const n = g.n, cnt = stopsOf(k, n, (g.len - 4 * n) >> 1), S = GS, out = this.lut, o = row * 1024; let si = 0;
       for (let x = 0; x < 256; x++) {
         const t = x / 255, q = o + x * 4; let r, gg, b, a;
@@ -683,7 +705,7 @@
       const v = V2; this._vec(g.s, v); let sx = v[0], sy = v[1]; this._vec(g.e, v); let ex = v[0], ey = v[1], rad = Math.hypot(ex - sx, ey - sy);
       let fx = sx, fy = sy; if (g.t !== 1 && this._focal(g, ex - sx, ey - sy)) { fx = sx + GV[6] * rad; fy = sy + GV[7] * rad; }
       if (mt) { const a = mt[mo], b = mt[mo + 1], c = mt[mo + 2], d = mt[mo + 3], e = mt[mo + 4], f = mt[mo + 5], x0 = a * sx + c * sy + e, y0 = b * sx + d * sy + f, x1 = a * ex + c * ey + e, y1 = b * ex + d * ey + f, x2 = a * fx + c * fy + e, y2 = b * fx + d * fy + f; sx = x0; sy = y0; ex = x1; ey = y1; fx = x2; fy = y2; rad *= rms; }
-      let k = g.k.v; if (g.k.t >= 0) { this._track(g.k.t, this.f, CTRL); k = CTRL; }
+      const k = this._stopK(g);
       const n = g.n, cnt = stopsOf(k, n, (g.len - 4 * n) >> 1), S = GS;
       const cg = g.t === 1 ? ctx.createLinearGradient(sx, sy, ex, ey) : ctx.createRadialGradient(fx, fy, 0, sx, sy, rad || 1e-6);
       let lastPos = 0;
@@ -731,10 +753,10 @@
     }
     _layer(C, l, f, base, alpha, stamp) {
       if (l.ty === 3) return;
-      this.f = f;
-      const w = this._world(C, l, base, stamp), a = alpha * this._num(l.ks.o) * 0.01;
+      this.f = f; l.seen = this.frameId;
+      const w = this._world(C, l, base, stamp), a = alpha * this._num(l.ks.o) * 0.01 * l.ks.dop;
       if (a <= 0.002) return;
-      if (l.ty === 4) { if (l.styles.length) this._shapes(l, w, a); return; }
+      if (l.ty === 4) { if (l.styles.length) { if (l.masks.length) this._masked(l, w, a); else this._shapes(l, w, a); } return; }
       const sub = this.comps[l.rf]; if (!sub || this.depth > 24) return;
       // Вложенная композиция обрезается своей рамкой w×h. Правило снято с rlottie (так рисует Telegram): рамки
       // вложенных композиций пересекаются между собой, а когда пересечение пусто, обрезка снимается совсем
@@ -763,6 +785,74 @@
         this._popMatte(1); this._pop(1);
       }
       this.clip = saved;
+    }
+
+    // маска слоя: содержимое уходит в буфер, маски собираются в буфер сверху и гасят его, как мат-слой
+    _masked(l, w, a) {
+      this._push(); this._shapes(l, w, a);
+      this._push(); this._masks(l);
+      this._popMatte(1); this._pop(1);
+    }
+    // маски по порядку: каждая собирается в свой буфер с непрозрачностью, потом добавляется, вычитается или пересекается
+    _masks(l) {
+      const cm = l.cm, a0 = cm[0], b0 = cm[1], c0 = cm[2], d0 = cm[3], rms = Math.sqrt(((a0 + c0) * (a0 + c0) + (b0 + d0) * (b0 + d0)) * 0.5);
+      for (const m of l.masks) {
+        const alpha = this._num(m.o) * 0.01, hw = this._num(m.x) * rms;
+        this._push(); this._push(); this._cover(l, m.g, hw, m.inv);
+        this._pop(alpha);
+        if (m.mode === 1) this._pop(1); else this._popMatte(m.mode === 2 ? 2 : 1);
+      }
+    }
+    // покрытие маски в пустой буфер сверху: контур с расширением hw (больше нуля — наружу, меньше — внутрь);
+    // инверсия — весь холст без этого контура
+    _cover(l, g, hw, inv) {
+      if (inv) { this._fill(); this._push(); this._shape(l, g, hw); this._popMatte(2); }
+      else this._shape(l, g, hw);
+    }
+    // контур маски с расширением: заливка, затем объединение с полосой (наружу) или вычитание полосы (внутрь)
+    _shape(l, g, hw) {
+      const k = this._pieces(l, g), ctx = this.ctx;
+      if (ctx) {
+        this._pathCtx(k); ctx.fillStyle = '#fff'; ctx.fill('nonzero');
+        if (hw > 0) this._strokeCtx(k, hw);
+        else if (hw < 0) { this._push(); this._strokeCtx(k, -hw); this._popMatte(2); }
+        return;
+      }
+      const s0 = this.ns; let ns = s0, tot = 0; for (let q0 = 0; q0 < k; q0++) tot += PC[q0 * 3 + 1] + 1; needSeg(ns + tot);
+      for (let q0 = 0; q0 < k; q0++) {
+        const ps = PC[q0 * 3], cnt = PC[q0 * 3 + 1]; let q = ps * 2, px = PTS[q], py = PTS[q + 1];
+        for (let j = 1; j < cnt; j++) { q += 2; const nx = PTS[q], ny = PTS[q + 1], o = ns * 4; SEG[o] = px; SEG[o + 1] = py; SEG[o + 2] = nx; SEG[o + 3] = ny; ns++; px = nx; py = ny; }
+        if (PC[q0 * 3 + 2] && cnt > 1) { const o = ns * 4; SEG[o] = px; SEG[o + 1] = py; SEG[o + 2] = PTS[ps * 2]; SEG[o + 3] = PTS[ps * 2 + 1]; ns++; }
+      }
+      const emit = (mode, h) => { this.ns = ns; this._emit(s0, mode, h, -1, 1, 1, 1, 1); };
+      emit(0, 0);
+      if (hw > 0) emit(2, hw);
+      else if (hw < 0) { this._push(); emit(2, -hw); this._popMatte(2); }
+      this.ns = ns;
+    }
+    // контур маски на Canvas 2D: путь из PC/PTS
+    _pathCtx(k) {
+      const ctx = this.ctx; ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.beginPath();
+      for (let q0 = 0; q0 < k; q0++) { const cnt = PC[q0 * 3 + 1]; let q = PC[q0 * 3] * 2; ctx.moveTo(PTS[q], PTS[q + 1]); for (let j = 1; j < cnt; j++) { q += 2; ctx.lineTo(PTS[q], PTS[q + 1]); } if (!PC[q0 * 3 + 2]) ctx.closePath(); }
+    }
+    // полоса шириной 2·hw вокруг контура (объединение с заливкой, белым цветом)
+    _strokeCtx(k, hw) {
+      const ctx = this.ctx; this._pathCtx(k);
+      ctx.lineWidth = 2 * hw; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.strokeStyle = '#fff'; ctx.stroke();
+    }
+    // геометрия маски в PC/PTS: куски контура, как у заливки стиля
+    _pieces(l, g) {
+      if (l.gst[g] < 0) this._geom(l, g);
+      const pb = l.gst[g], k = l.gpc[g]; needPc(k);
+      for (let j = 0; j < k; j++) { PC[j * 3] = l.pieces[pb + j * 3]; PC[j * 3 + 1] = l.pieces[pb + j * 3 + 1]; PC[j * 3 + 2] = l.pieces[pb + j * 3 + 2]; }
+      return k;
+    }
+    // весь холст (альфа 1) в пустой буфер сверху
+    _fill() {
+      const ctx = this.ctx, W = this.size, Hh = this.hgt;
+      if (ctx) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, Hh); return; }
+      PV[0] = 0; PV[1] = 0; PV[2] = W; PV[3] = 0; PV[4] = W; PV[5] = Hh; PV[6] = 0; PV[7] = Hh;
+      const s0 = this.ns; this._poly(4); this._emit(s0, 0, 0, -1, 1, 1, 1, 1);
     }
 
     // экземпляр для видеокарты и Soft: отрезки SEG[s0..ns), режим (0 заливка, 1 чётно-нечётная, 2 обводка расстоянием)
@@ -889,7 +979,7 @@
 
     // Один кадр. ctx задан: рисуем в Canvas 2D. Иначе заполняем SEG/INST/CMD для видеокарты и Soft и возвращаем число экземпляров.
     frame(i, size, ctx) {
-      const H = this.h;
+      const H = this.h; this.frameId = (this.frameId || 0) + 1;
       this.size = size; this.hgt = Math.max(1, Math.round(size * H.h / H.w)); this.S = size / H.w; this.ctx = ctx || null; this.tol = ctx ? 0.1 : 0.2;
       this.ns = 0; this.ni = 0; this.nc = 0; this.from = 0; this.lutN = H.ng || 0; this.clip = null; this.depth = 0; this.mute = 0; this.stack = [];
       if (ctx) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.clearRect(0, 0, size, this.hgt); } else { BN = 0; RN = 0; }
@@ -901,9 +991,12 @@
 
     // Что нарисовано в точке (x, y) кадра i при ширине size: верхний стиль под точкой или null.
     // Возвращает { uid, src, name, layer }; источники масок не считаются
-    pick(i, size, x, y) {
-      this.frame(i, size, null);
-      for (let n = this.ni - 1; n >= 0; n--) {
+    pick(i, size, x, y) { return this._hitsAt(i, size, x, y, 1)[0] || null; }
+    // все стили под точкой, сверху вниз, без повторов: редактор выбирает группу, а не только верхний слой
+    pickAll(i, size, x, y) { return this._hitsAt(i, size, x, y, Infinity); }
+    _hitsAt(i, size, x, y, max) {
+      this.frame(i, size, null); const out = [], seen = new Set();
+      for (let n = this.ni - 1; n >= 0 && out.length < max; n--) {
         const o = n * INST_F; if (IM[n * 4 + 3] || IM[n * 4 + 2] < 0 || x < INST[o] || x > INST[o + 2] || y < INST[o + 1] || y > INST[o + 3]) continue;
         const s0 = IM[n * 4], s1 = s0 + IM[n * 4 + 1], mode = INST[o + 6]; let hit = false;
         if (mode === 2) {
@@ -914,10 +1007,21 @@
           for (let k = s0; k < s1; k++) { const ax = SEG[k * 4], ay = SEG[k * 4 + 1], bx = SEG[k * 4 + 2], by = SEG[k * 4 + 3]; if ((ay <= y) !== (by <= y)) { const xi = ax + (y - ay) * (bx - ax) / (by - ay); if (xi > x) wn += by > ay ? 1 : -1; } }
           hit = mode === 1 ? (wn & 1) !== 0 : wn !== 0;
         }
-        if (hit) { const st = this.styles[IM[n * 4 + 2]]; return { uid: st.uid, src: st.src, name: st.nm >= 0 ? this.names[st.nm] : '', layer: st.layer.src || '' }; }
+        if (hit) { const st = this.styles[IM[n * 4 + 2]]; if (!seen.has(st.uid)) { seen.add(st.uid); out.push({ uid: st.uid, src: st.src, name: st.nm >= 0 ? this.names[st.nm] : '', layer: st.layer.src || '', groups: st.groups }); } }
       }
-      return null;
+      return out;
     }
+    // матрица узла (слой, группа или стиль) в единицах сцены на кадре i и его непрозрачность; null, если узел на кадре не нарисован
+    worldAt(src, i) {
+      const nd = this.nodes.get(src); if (!nd) return null;
+      this.frame(i, this.h.w, null);
+      const l = nd.layer; if (l.seen !== this.frameId) return null;
+      if (!nd.style && !nd.chain) return { m: Array.from(l.wm), o: this._num(l.ks.o) * 0.01 * l.ks.dop };
+      const c = nd.style ? nd.style.xf : nd.chain;
+      return { m: Array.from(l.cm.subarray(c * 6, c * 6 + 6)), o: l.co[c] };
+    }
+    // рамка узла по пути в исходном Lottie (слой, группа или стиль) в пикселях кадра i при ширине size; маска рамку не режет
+    nodeBounds(src, i, size) { return this.bounds(i, size, (st) => st.src === src || st.src.startsWith(src + '/') || st.layer.src === src); }
     // Рамка [x0, y0, x1, y1] в пикселях того, что подходит под test(style) в кадре i; null, если ничего не нарисовано
     bounds(i, size, test) {
       this.frame(i, size, null);
@@ -1258,6 +1362,7 @@
       this.own = own; this.loop = opts.loop !== false; this.speed = opts.speed || 1; this.backend = opts.backend || backend; this.fixed = opts.size || 0;
       // subframe: рисовать и между кадрами файла (плавнее на экранах 120 Гц, вдвое больше работы). По умолчанию кадр рисуется один раз
       this.subframe = !!opts.subframe; this.shown = -1;
+      this.listeners = {}; this.segment = null; this.direction = 1; this.loopsLeft = typeof opts.loop === 'number' ? opts.loop - 1 : -1;
       this.onComplete = opts.onComplete || null; this.player = null; this.playing = false; this.visible = true; this.frame = 0; this.last = 0; this.dead = false; this.gen = 0; this.over = new Map();
       this.want = opts.autoplay !== false && !(reduced && opts.reducedMotion !== 'ignore');
       if (typeof IntersectionObserver === 'function') { this.io = new IntersectionObserver((e) => { this.visible = e[e.length - 1].isIntersecting; this._sync(); }); this.io.observe(this.canvas); }
@@ -1268,7 +1373,13 @@
     get fps() { return this.player ? this.player.fr : 0; }
     get used() { return this.player ? this.player.used : ''; }
     get scene() { return this.player ? this.player.scene : null; }
-    _draw() { if (this.player) { this.player.render(this.subframe ? this.frame : Math.floor(this.frame)); this.shown = Math.floor(this.frame); } }
+    _draw() { if (this.player) { this.player.render(this.subframe ? this.frame : Math.floor(this.frame)); this.shown = Math.floor(this.frame); this._emit('enterFrame'); } }
+    // события как в lottie-web: enterFrame, loopComplete, complete, DOMLoaded, data_ready, error
+    on(name, fn) { (this.listeners[name] || (this.listeners[name] = [])).push(fn); return this; }
+    off(name, fn) { const a = this.listeners[name]; if (a) { const k = a.indexOf(fn); if (k >= 0) a.splice(k, 1); } return this; }
+    addEventListener(name, fn) { return this.on(name, fn); }
+    removeEventListener(name, fn) { return this.off(name, fn); }
+    _emit(name) { const a = this.listeners[name]; if (a && a.length) { const e = { type: name, currentTime: this.frame, totalTime: this.frames, direction: this.direction }; for (const fn of a.slice()) fn(e); } }
     // source: адрес .ecr, ArrayBuffer, Uint8Array или Scene
     _set(source) {
       const gen = ++this.gen;
@@ -1278,7 +1389,8 @@
         for (const [n, p] of this.over) this.player.scene.setOver(n, p);
         if (this.frame >= this.player.frames) this.frame = 0;
         this._fit(false); this._draw();
-      });
+        if (!this.loaded) { this.loaded = true; this._emit('DOMLoaded'); this._emit('data_ready'); }
+      }).catch((e) => { this._emit('error'); throw e; });
     }
     // элементы сцены: что можно двигать (move) и красить (paint), с цветом по умолчанию
     names() { return this.player ? this.player.scene.elements() : []; }
@@ -1298,6 +1410,21 @@
       const r = this.canvas.getBoundingClientRect(), k = this.canvas.width / (r.width || 1);
       return this.player.scene.pick(Math.floor(this.frame), this.canvas.width, (clientX - r.left) * k, (clientY - r.top) * k);
     }
+    // все попадания под точкой, сверху вниз: [{ uid, src, name, layer, groups }]
+    pickAll(clientX, clientY) {
+      if (!this.player) return [];
+      const r = this.canvas.getBoundingClientRect(), k = this.canvas.width / (r.width || 1);
+      return this.player.scene.pickAll(Math.floor(this.frame), this.canvas.width, (clientX - r.left) * k, (clientY - r.top) * k);
+    }
+    // рамка узла по пути в экранных координатах: { left, top, right, bottom } или null
+    nodeBounds(src) {
+      if (!this.player) return null;
+      const b = this.player.scene.nodeBounds(src, Math.floor(this.frame), this.canvas.width); if (!b) return null;
+      const r = this.canvas.getBoundingClientRect(), k = (r.width || 1) / this.canvas.width;
+      return { left: r.left + b[0] * k, top: r.top + b[1] * k, right: r.left + b[2] * k, bottom: r.top + b[3] * k };
+    }
+    // матрица узла в единицах сцены на текущем кадре: { m: [a, b, c, d, e, f], o } или null
+    worldAt(src) { return this.player ? this.player.scene.worldAt(src, Math.floor(this.frame)) : null; }
     // рамка элемента с именем name (или стилей, для которых test вернул true) в координатах экрана: { left, top, right, bottom }
     bounds(nameOrTest) {
       if (!this.player) return null;
@@ -1325,21 +1452,51 @@
     }
     _step(now) {
       const p = this.player, dt = this.last ? Math.min(100, now - this.last) : 0; this.last = now;
-      let f = this.frame + dt * p.fr * this.speed / 1000, end = false, lap = false;
-      if (f >= p.frames) { if (this.loop && p.frames > 1) { f %= p.frames; lap = true; } else { f = Math.max(0, p.frames - 1); end = true; } }
+      const lo = this.segment ? this.segment[0] : 0, hi = this.segment ? Math.min(this.segment[1], p.frames) : p.frames, span = hi - lo;
+      let f = this.frame + dt * p.fr * this.speed * this.direction / 1000, end = false, lap = false;
+      if (f >= hi || f < lo) {
+        if (this.loop && span > 1 && this.loopsLeft !== 0) { if (this.loopsLeft > 0) this.loopsLeft--; f = lo + ((f - lo) % span + span) % span; lap = true; }
+        else { f = this.direction > 0 ? Math.max(lo, hi - 1) : lo; end = true; }
+      }
       this.frame = f;
       // экран обновляется чаще, чем меняются кадры файла: один и тот же кадр второй раз не рисуем
       if (this.subframe || Math.floor(f) !== this.shown) this._draw();
-      if (end) { this.playing = false; drop(this); if (this.onComplete) this.onComplete(this); }
+      if (end) { this.playing = false; drop(this); this._emit('complete'); if (this.onComplete) this.onComplete(this); }
       // доиграла круг, а другие ждут очереди: уступает место и встаёт в конец. Так играют все по кругу, а не первые шесть
-      else if (lap && waiting.size) { live.delete(this); waiting.add(this); admit(); }
+      else if (lap) { this._emit('loopComplete'); if (waiting.size) { live.delete(this); waiting.add(this); admit(); } }
     }
     play() { this.want = true; this.playing = true; this._sync(); return this; }
     pause() { this.want = false; this.playing = false; this._sync(); return this; }
     seek(frame) { this.frame = Math.max(0, Math.min(frame, Math.max(0, this.frames - 1))); this._draw(); return this; }
+    get totalFrames() { return this.frames; }
+    get currentFrame() { return this.frame; }
+    get isLoaded() { return !!this.player; }
+    get isPaused() { return !this.playing; }
+    getDuration(inFrames) { return inFrames ? this.frames : this.frames / (this.fps || 1); }
+    setSpeed(speed) { this.speed = +speed || 0; return this; }
+    setDirection(d) { this.direction = d < 0 ? -1 : 1; return this; }
+    // значение в кадрах, либо в миллисекундах при isFrame = false (как в lottie-web)
+    _at(value, isFrame) { const f = isFrame ? +value : (+value) * (this.fps || 1) / 1000; return Math.max(0, Math.min(f, Math.max(0, this.frames - 1))); }
+    goToAndStop(value, isFrame) { this.pause(); this.frame = this._at(value, isFrame); this._draw(); return this; }
+    goToAndPlay(value, isFrame) { this.frame = this._at(value, isFrame); this.play(); return this; }
+    // сегмент воспроизведения [первый кадр, последний кадр); force — начать с сегмента
+    playSegments(seg, force) { const r = Array.isArray(seg[0]) ? seg[0] : seg; this.segment = [+r[0], +r[1]]; if (force || this.frame < r[0] || this.frame >= r[1]) this.frame = +r[0]; return this.play(); }
+    resetSegments(force) { this.segment = null; if (force) this.frame = 0; return this; }
     destroy() { this.dead = true; this.playing = false; drop(this); if (this.io) this.io.disconnect(); if (this.ro) this.ro.disconnect(); if (this.own) this.canvas.remove(); this.player = null; this.onComplete = null; }
   }
   const mount = (target, source, opts) => new Animation(target, source, opts);
+  // .tgs (gzip) и .json по адресу: разбирается компилятором в сцену
+  const gunzipMaybe = (buf) => { const b = new Uint8Array(buf); if (b[0] !== 0x1f || b[1] !== 0x8b || typeof DecompressionStream !== 'function') return buf; return new Response(new Blob([b]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer(); };
+  const lottieUrl = (url) => fetch(url).then((r) => { if (!r.ok) throw new Error('ecore: ' + url + ' ответил ' + r.status); return r.arrayBuffer(); }).then(gunzipMaybe).then((buf) => fromLottie(JSON.parse(new TextDecoder().decode(buf))));
+  // совместимость с lottie.loadAnimation: container или rendererSettings.context, animationData или path (.ecr, .json, .tgs)
+  const loadAnimation = (params) => {
+    params = params || {};
+    const rs = params.rendererSettings || {};
+    const target = rs.context && rs.context.canvas ? rs.context.canvas : params.container;
+    let source = params.animationData ? fromLottie(params.animationData) : params.path;
+    if (typeof source === 'string' && !/\.ecr(\?|#|$)/i.test(source)) source = lottieUrl(source);
+    return new Animation(target, source, { loop: params.loop === undefined ? true : params.loop, autoplay: params.autoplay });
+  };
 
   // <e-core src="a.ecr" still="a.still.ecr" style="width:160px"></e-core>
   if (typeof customElements !== 'undefined' && !customElements.get('e-core')) customElements.define('e-core', class extends HTMLElement {
@@ -1359,7 +1516,7 @@
 
   const api = {
     _buffers: () => ({ INST, SEG, SEG2, ROWT, IM, CMD, INST_F, SEGW }),   // для проверок: то, что получает видеокарта
-    Scene, Player, Animation, Soft, mount, load, renderRGBA, fromLottie, inflateRaw,
+    Scene, Player, Animation, Soft, mount, loadAnimation, load, renderRGBA, fromLottie, inflateRaw,
     setBackend: (b) => { backend = b === 'gl' || b === '2d' || b === 'soft' ? b : 'auto'; },
     warm: () => { getGL(false); },   // можно позвать при старте страницы, чтобы WebGL был готов заранее
     gl: () => shared,
@@ -1370,7 +1527,7 @@
     setVerify: (on) => { verifyGL = !!on; },
     // пустая строка, если видеокарта рисует верно; иначе что именно она нарисовала не так (после этого работает Canvas 2D)
     glFault: () => glFault,
-    version: '0.3.2',
+    version: '0.4.0',
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   G.ECore = Object.assign(G.ECore || {}, api);
