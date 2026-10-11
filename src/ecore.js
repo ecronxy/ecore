@@ -1103,22 +1103,35 @@
       }
       return f;
     }
-    // Самопроверка: только что нарисованный кадр читается с видеокарты и сверяется с тем же кадром, посчитанным
-    // на процессоре. Драйверы видеокарт ошибаются по-разному и молча, а расчёт на процессоре один и тот же везде.
+    // Самопроверка: только что нарисованный кадр сверяется с тем же кадром, посчитанным на процессоре.
+    // Драйверы видеокарт ошибаются по-разному и молча, а расчёт на процессоре один и тот же везде.
+    // Сверяется то, что реально получит страница: копия кадра с общего холста видеокарты на обычный холст.
+    // Если копия неверна, отдельно читается сам кадр на видеокарте, чтобы назвать, где именно сбой.
     // Возвращает null, если картинка сошлась, иначе описание расхождения.
     verify(sc, i, size) {
-      const gl = this.gl, hgt = Math.max(1, Math.round(size * sc.h.h / sc.h.w)), top = this.canvas.height, n = size * hgt * 4;
-      if (!this.px || this.px.length < n) this.px = new Uint8Array(n);
+      const gl = this.gl, hgt = Math.max(1, Math.round(size * sc.h.h / sc.h.w)), top = this.canvas.height;
+      // холст для сверки каждый раз новый: с него читают один раз, и браузер не переводит его на медленный путь
+      const pv = document.createElement('canvas'); pv.width = size; pv.height = hgt;
+      const pc = pv.getContext('2d');
+      pc.drawImage(this.canvas, 0, 0, size, hgt, 0, 0, size, hgt);
+      const got = pc.getImageData(0, 0, size, hgt).data;
+      const ref = (soft || (soft = new Soft())).render(sc, i, size).data;
+      // обе картинки сравниваются с цветом, умноженным на альфу; flip: строки идут снизу вверх (так читает видеокарта)
+      const diff = (px, flip, pre) => {
+        let bad = 0, all = 0, x0 = size, y0 = hgt, x1 = -1, y1 = -1;
+        for (let y = 1; y < hgt; y += 3) for (let x = 1; x < size; x += 3) {
+          const q = (y * size + x) * 4, g = flip ? ((hgt - 1 - y) * size + x) * 4 : q, a = ref[q + 3] / 255, b = pre ? 1 : px[g + 3] / 255; all++;
+          if (Math.abs(px[g + 3] - ref[q + 3]) > 56 || Math.abs(px[g] * b - ref[q] * a) > 56 || Math.abs(px[g + 1] * b - ref[q + 1] * a) > 56 || Math.abs(px[g + 2] * b - ref[q + 2] * a) > 56) { bad++; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+        }
+        return bad > Math.max(8, all * 0.002) ? 'неверных точек ' + bad + ' из ' + all + ', область x ' + x0 + '–' + x1 + ', y ' + y0 + '–' + y1 : '';
+      };
+      const copy = diff(got, false, false);
+      if (!copy) return null;
+      const n = size * hgt * 4; if (!this.px || this.px.length < n) this.px = new Uint8Array(n);
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.readPixels(0, top - hgt, size, hgt, gl.RGBA, gl.UNSIGNED_BYTE, this.px);
-      const ref = (soft || (soft = new Soft())).render(sc, i, size).data, px = this.px;
-      let bad = 0, all = 0, x0 = size, y0 = hgt, x1 = -1, y1 = -1;
-      for (let y = 1; y < hgt; y += 3) for (let x = 1; x < size; x += 3) {
-        // у видеокарты строки идут снизу вверх и цвет уже умножен на альфу
-        const q = (y * size + x) * 4, g = ((hgt - 1 - y) * size + x) * 4, a = ref[q + 3] / 255; all++;
-        if (Math.abs(px[g + 3] - ref[q + 3]) > 56 || Math.abs(px[g] - ref[q] * a) > 56 || Math.abs(px[g + 1] - ref[q + 1] * a) > 56 || Math.abs(px[g + 2] - ref[q + 2] * a) > 56) { bad++; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
-      }
-      return bad > Math.max(8, all * 0.002) ? 'кадр ' + Math.floor(i) + ', холст ' + size + '×' + hgt + ', неверных точек ' + bad + ' из ' + all + ', область x ' + x0 + '–' + x1 + ', y ' + y0 + '–' + y1 + (this.name ? ', ' + this.name : '') : null;
+      const frame = diff(this.px, true, true);
+      return (frame ? 'сам кадр на видеокарте неверен: ' + frame : 'кадр на видеокарте верен, но на холст страницы он копируется с ошибкой: ' + copy) + '; кадр ' + Math.floor(i) + ', холст ' + size + '×' + hgt + (this.name ? ', ' + this.name : '');
     }
     // первые кадры меряем: если видеокарта не тянет (или копия на холст идёт через процессор), дальше рисует Canvas 2D
     probe(ms) { if (this.seen++ < 2 || this.seen > 14) return; if (ms > 12) this.bad++; if (this.bad >= 5) this.slow = true; }
@@ -1187,12 +1200,14 @@
       if (gl && gl.ready() && !(gl.slow && this.backend !== 'gl')) {
         const t = performance.now();
         gl.draw(sc, i, size);
-        // сверка с процессором: несколько разных кадров каждой сцены и заново при новом размере холста
-        if (!gl.dry && verifyGL && sc.inst && (this.checkSize !== size || (this.checks < 5 && Math.abs(i - this.checked) >= 12))) {
+        // Сверка с процессором: до пяти разных кадров сцены. Устройство, прошедшее шестнадцать сверок, дальше проверяется
+        // только на холстах крупнее уже проверенных: ошибки драйверов часто зависят именно от размера
+        if (!gl.dry && verifyGL && sc.inst && (this.checkSize !== size || (this.checks < 5 && Math.abs(i - this.checked) >= 12)) && (okChecks < 16 || size > okSize)) {
           if (this.checkSize !== size) { this.checkSize = size; this.checks = 0; }
           this.checks++; this.checked = i;
           const fault = gl.verify(sc, i, size);
-          if (fault) { glFault = fault; gl.dead = true; gl.ok = false; console.warn('ecore: видеокарта нарисовала кадр неверно, дальше рисует Canvas 2D. ' + fault); sc.frame(i, size, this.ctx); this.used = '2d'; return; }
+          if (!fault) { okChecks++; if (this.checks >= 5 && size > okSize) okSize = size; }
+          if (fault) { glFault = fault; gl.dead = true; gl.ok = false; console.warn('ecore: кадр с видеокарты не сошёлся с расчётом на процессоре, дальше рисует Canvas 2D. ' + fault); sc.frame(i, size, this.ctx); this.used = '2d'; return; }
           const c = this.ctx; c.clearRect(0, 0, size, hgt); c.drawImage(gl.canvas, 0, 0, size, hgt, 0, 0, size, hgt); this.used = 'gl'; return;   // время сверки в замер скорости не идёт
         }
         if (!gl.dry) { const c = this.ctx; c.clearRect(0, 0, size, hgt); c.drawImage(gl.canvas, 0, 0, size, hgt, 0, 0, size, hgt); }
@@ -1210,7 +1225,7 @@
   // так что страница остаётся отзывчивой, а при прокрутке бюджет ещё меньше.
   const live = new Set(), waiting = new Set(), files = new Map();
   let raf = 0, ticking = false, backend = 'auto', maxLive = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches ? 6 : 16;
-  let budget = 7, scrollBudget = 3, scrollUntil = 0, turn = 0, verifyGL = true;
+  let budget = 7, scrollBudget = 3, scrollUntil = 0, turn = 0, verifyGL = true, okChecks = 0, okSize = 0;
   const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
   const tick = (now) => {
     raf = 0; ticking = true;
@@ -1355,7 +1370,7 @@
     setVerify: (on) => { verifyGL = !!on; },
     // пустая строка, если видеокарта рисует верно; иначе что именно она нарисовала не так (после этого работает Canvas 2D)
     glFault: () => glFault,
-    version: '0.3.1',
+    version: '0.3.2',
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   G.ECore = Object.assign(G.ECore || {}, api);
