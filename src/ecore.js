@@ -1505,7 +1505,8 @@
     setSpeed(speed) { this.speed = +speed || 0; return this; }
     setDirection(d) { this.direction = d < 0 ? -1 : 1; return this; }
     // значение в кадрах, либо в миллисекундах при isFrame = false (как в lottie-web)
-    _at(value, isFrame) { const f = isFrame ? +value : (+value) * (this.fps || 1) / 1000; return Math.max(0, Math.min(f, Math.max(0, this.frames - 1))); }
+    // до загрузки файла число кадров неизвестно: кадр запоминается как есть и ограничится в _set, а не сбрасывается в 0
+    _at(value, isFrame) { const f = isFrame ? +value : (+value) * (this.fps || 1) / 1000; return this.player ? Math.max(0, Math.min(f, Math.max(0, this.frames - 1))) : Math.max(0, f); }
     goToAndStop(value, isFrame) { this.pause(); this.frame = this._at(value, isFrame); this._draw(); return this; }
     goToAndPlay(value, isFrame) { this.frame = this._at(value, isFrame); this.play(); return this; }
     // сегмент воспроизведения [первый кадр, последний кадр); force — начать с сегмента
