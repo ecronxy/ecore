@@ -49,7 +49,8 @@
 ```
 
 Атрибуты тега: `src`, `still` (стоп-кадр, который показывается раньше анимации), `loop`, `autoplay`, `speed`,
-`size`, `backend` (`gl`, `2d` или `soft`), `subframe`.
+`size`, `backend` (`gl`, `2d` или `soft`), `subframe`, `segment` (`"0 30"`: сыграть отрезок и встать),
+`tint` (цвет всей анимации, `currentColor` берёт CSS `color` тега).
 
 ### Из кода
 
@@ -59,6 +60,22 @@ anim.pause(); anim.play(); anim.seek(30);
 anim.setSource('other.ecr');
 anim.destroy();
 ```
+
+Отрезок и цвет из CSS (иконки вкладок, кнопки с состоянием):
+
+```js
+const icon = ECore.mount(el, 'tab.ecr', { autoplay: false, tint: 'currentColor', onComplete: () => {} });
+icon.play(0, 30);    // с кадра 0 до 30, стоп ровно на 30, onComplete на конце отрезка (loop на отрезок не действует)
+icon.play(30, 49);   // доиграть дальше; play(49, 0) играет назад; play() без чисел снимает отрезок
+icon.tint('#0a84ff'); icon.tint(null);   // свой цвет или вернуть цвета файла; set(имя, { color }) важнее tint
+```
+
+`tint: 'currentColor'` (и `set(имя, { color: 'currentColor' })`) красит сцену в CSS `color` элемента-хозяина, как
+`fill: currentColor` у SVG. Цвет перечитывается перед рисованием и сам, когда меняются стиль или класс у `html`/`body`
+или системная тема. Если CSS сменился по-другому, а анимация стоит: `anim.restyle()`.
+
+Анимация за экраном стоит. Если она должна идти в такт с видимой (второй слой иконки под `clip-path`, как у
+таб-бара с капсулой), её не ставят на паузу: `pauseHidden: false`.
 
 - Один `requestAnimationFrame` на страницу. Анимации за экраном и в фоновой вкладке не считаются.
 - У всех анимаций страницы общий бюджет времени на кадр экрана: 7 мс, пока страницу листают 3 мс. Кто не уложился,

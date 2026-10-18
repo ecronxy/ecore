@@ -12,7 +12,7 @@ class HTMLCanvasElement { constructor() { this.width = 300; this.height = 150; t
 const observers = [];
 const win = {
   HTMLCanvasElement, devicePixelRatio: 2, performance: { now: () => now }, console, setTimeout: (f) => { f(); return 0; }, TextDecoder, Float32Array, Float64Array, Int32Array, Uint8Array, Uint16Array, Uint8ClampedArray, Math, Array, Object, Promise, Map, Set, Error, String, Number, isFinite, parseInt,
-  matchMedia: () => ({ matches: false }), requestAnimationFrame: (f) => { rafQ.push(f); return rafQ.length; },
+  matchMedia: () => ({ matches: false }), getComputedStyle: (el) => ({ color: el.cssColor || '' }), requestAnimationFrame: (f) => { rafQ.push(f); return rafQ.length; },
   OffscreenCanvas: function (w, h) { const c = new HTMLCanvasElement(); c.width = w; c.height = h; return c; },
   IntersectionObserver: function (cb) { this.observe = () => { observers.push(cb); cb([{ isIntersecting: true }]); }; this.disconnect = () => {}; },
   ResizeObserver: function () { this.observe = () => {}; this.disconnect = () => {}; },
@@ -55,6 +55,27 @@ const gift = (n) => { if (!built.has(n)) built.set(n, compileLottie(compileSourc
   await once.ready; for (let i = 0; i < 400 && !done; i++) frame(16.7);
   ok(done === 1 && !once.playing && Math.floor(once.frame) === once.frames - 1, 'без повтора останавливается на последнем кадре и сообщает');
   once.destroy(); a.destroy();
+  // 3а. отрезок: play(от, до) встаёт ровно на «до» и сообщает один раз, loop на отрезок не действует; назад тоже
+  let segDone = 0; const sg = E.mount(new HTMLCanvasElement(), gift(names[1]), { autoplay: false, onComplete: () => segDone++ });
+  await sg.ready; const mid = Math.floor(sg.frames / 2);
+  sg.play(0, mid); for (let i = 0; i < 400 && !segDone; i++) frame(16.7);
+  for (let i = 0; i < 10; i++) frame(16.7);
+  ok(segDone === 1 && !sg.playing && sg.frame === mid, 'play(0, ' + mid + ') встаёт на кадре ' + mid + ' и сообщает один раз', 'кадр ' + sg.frame + ', сообщений ' + segDone);
+  sg.play(mid, sg.frames); for (let i = 0; i < 400 && segDone < 2; i++) frame(16.7);
+  ok(segDone === 2 && sg.frame === sg.frames - 1, 'отрезок до конца файла встаёт на последнем кадре', 'кадр ' + sg.frame);
+  sg.play(sg.frames - 1, 5); for (let i = 0; i < 400 && segDone < 3; i++) frame(16.7);
+  ok(segDone === 3 && sg.frame === 5, 'отрезок назад встаёт на кадре 5', 'кадр ' + sg.frame);
+  sg.pause(); sg.seek(0); ok(sg.frame === 0 && !sg.playing, 'после отрезка пауза и перемотка как обычно');
+  sg.destroy();
+  const sl = E.mount(new HTMLCanvasElement(), gift(names[1]), { segment: [0, 12], loop: true });
+  await sl.ready; for (let i = 0; i < 200; i++) frame(16.7);
+  ok(!sl.playing && sl.frame === 12, 'mount с segment и loop: отрезок играет один раз', 'кадр ' + sl.frame);
+  sl.destroy();
+  // pauseHidden: false — играет и когда наблюдатель говорит «не видно»
+  const hid = E.mount(new HTMLCanvasElement(), gift(names[1]), { pauseHidden: false }); await hid.ready;
+  const hf = hid.frame; for (const cb of observers) cb([{ isIntersecting: false }]); for (let i = 0; i < 10; i++) frame(16.7);
+  ok(hid.visible && hid.frame > hf, 'pauseHidden: false — за экраном не встаёт', 'кадр ' + hid.frame.toFixed(1));
+  hid.destroy();
   // 4. очередь: одновременно играет не больше maxLive
   E.setMaxLive(3);
   const many = []; for (let i = 0; i < 6; i++) { const m = E.mount(new HTMLCanvasElement(), gift(names[i % names.length])); await m.ready; many.push(m); }
@@ -99,6 +120,18 @@ const gift = (n) => { if (!built.has(n)) built.set(n, compileLottie(compileSourc
   const b = h.bounds(el.name); ok(b && b.right > b.left && b.bottom > b.top, 'bounds() даёт рамку элемента в координатах экрана', b ? [b.left, b.top, b.right, b.bottom].map((v) => v.toFixed(0)).join(',') : 'нет');
   const hit = b ? h.pick((b.left + b.right) / 2, (b.top + b.bottom) / 2) : null; ok(!!hit, 'pick() находит элемент под точкой', hit ? hit.name : 'ничего');
   h.reset(el.name); h.destroy();
+  // 7. currentColor: цвет берётся из CSS хозяина и пересчитывается, когда он меняется
+  const host = new HTMLCanvasElement(); host.cssColor = 'rgb(0, 122, 255)';
+  const t = E.mount(host, built.ecr, { autoplay: false, tint: 'currentColor' }); await t.ready;
+  const tc = t.scene.tint; ok(tc && Math.round(tc[0] * 255) === 0 && Math.round(tc[1] * 255) === 122 && Math.round(tc[2] * 255) === 255, 'tint currentColor берёт color хозяина', tc ? Array.from(tc).map((v) => v.toFixed(2)).join(',') : 'нет');
+  host.cssColor = 'rgba(255, 0, 0, 0.5)'; t.restyle();
+  ok(t.scene.tint[0] === 1 && t.scene.tint[3] === 0.5, 'смена CSS видна после restyle()', Array.from(t.scene.tint).join(','));
+  t.set(el.name, { color: '#00ff00' }); const oi = t.scene.names.indexOf(el.name);
+  ok(t.scene.ovArr[oi].c[1] === 1, 'цвет set() по имени поверх tint');
+  t.set(el.name, { color: 'currentColor' }); ok(t.scene.ovArr[oi].c[0] === 1 && t.scene.ovArr[oi].c[1] === 0, 'set(имя, { color: \'currentColor\' })');
+  t.tint('#123456'); ok(Math.round(t.scene.tint[2] * 255) === 0x56, 'tint(#hex)');
+  t.tint(null); ok(t.scene.tint === null, 'tint(null) возвращает цвета файла');
+  t.destroy();
   console.log(fails.length ? '\nСБОЕВ: ' + fails.length : '\nвсё прошло');
   process.exit(fails.length ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });
