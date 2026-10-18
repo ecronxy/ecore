@@ -275,9 +275,11 @@
   }
   const css = (r, g, b, a) => 'rgba(' + Math.round(r * 255) + ',' + Math.round(g * 255) + ',' + Math.round(b * 255) + ',' + (a < 0 ? 0 : a > 1 ? 1 : a) + ')';
   const hexOf = (c) => '#' + [c[0], c[1], c[2]].map((x) => Math.round(x * 255).toString(16).padStart(2, '0')).join('');
-  // цвет: '#rgb', '#rrggbb', '#rrggbbaa' или массив [r, g, b, a] в долях 0..1
+  // цвет: '#rgb', '#rrggbb', '#rrggbbaa', 'rgb(…)' / 'rgba(…)' (так отдаёт getComputedStyle) или массив [r, g, b, a] в долях 0..1
   function toRgba(c) {
     if (Array.isArray(c)) return [c[0], c[1], c[2], c.length > 3 ? c[3] : 1];
+    const m = /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+)(%?))?\s*\)$/i.exec(String(c).trim());
+    if (m) return [m[1] / 255, m[2] / 255, m[3] / 255, m[4] === undefined ? 1 : m[5] ? m[4] / 100 : +m[4]];
     let h = String(c).trim().replace(/^#/, '');
     if (h.length === 3) h = h.split('').map((x) => x + x).join('');
     if (!/^[0-9a-f]{6}([0-9a-f]{2})?$/i.test(h)) throw new Error('ecore: цвет «' + c + '» не разобрать, нужен вид #rrggbb');
@@ -327,6 +329,7 @@
     constructor(buf) {
       const d = decode(buf), F = this.F = d.F, off = d.off, H = this.h = d.h;
       this.kc = new Int32Array(F.length); this.frames = Math.max(1, Math.round(H.op - H.ip)); this.stamp = 0; this.np = 0; this.arcs = new Map();
+      this.tint = null;   // один цвет на все сплошные заливки и обводки (как CSS fill на всех path), [r, g, b, a] или null
       // имена элементов из исходника: moves — можно двигать (именованная группа), paint — есть сплошная заливка
       const NE = (this.names = H.names || []).length;
       this.ovArr = new Array(NE).fill(null); this.moves = new Uint8Array(NE); this.paint = new Uint8Array(NE); this.color = new Array(NE).fill(null);
@@ -807,7 +810,7 @@
       for (let si = 0; si < l.styles.length; si++) {
         const st = l.styles[si], alphaS = co[st.xf] * this._num(st.o) * 0.01;
         if (alphaS <= 0.002) continue;
-        const ovc = st.ov || (st.nm >= 0 && this.ovArr[st.nm] ? this.ovArr[st.nm].c : null), grad = ovc ? null : st.g;   // свой цвет заменяет и градиент
+        const ovc = st.ov || (st.nm >= 0 && this.ovArr[st.nm] ? this.ovArr[st.nm].c : null) || this.tint, grad = ovc ? null : st.g;   // свой цвет заменяет и градиент
         const mo = st.xf * 6, a = cm[mo], b = cm[mo + 1], c = cm[mo + 2], d = cm[mo + 3], e = cm[mo + 4], ff = cm[mo + 5];
         // толщина как в rlottie: ширина умножается на длину образа вектора (1,1), а не на корень из определителя
         const rms = Math.sqrt(((a + c) * (a + c) + (b + d) * (b + d)) * 0.5);
@@ -1259,23 +1262,27 @@
       // subframe: рисовать и между кадрами файла (плавнее на экранах 120 Гц, вдвое больше работы). По умолчанию кадр рисуется один раз
       this.subframe = !!opts.subframe; this.shown = -1;
       this.onComplete = opts.onComplete || null; this.player = null; this.playing = false; this.visible = true; this.frame = 0; this.last = 0; this.dead = false; this.gen = 0; this.over = new Map();
+      // segment: [от, до] — играть отрезок и встать на «до»; tint: цвет всей сцены, 'currentColor' — цвет CSS элемента-хозяина
+      this.segment = null; this.host = target; this.tintSpec = opts.tint || null; this.ccv = null; this._ccUse();
       this.want = opts.autoplay !== false && !(reduced && opts.reducedMotion !== 'ignore');
-      if (typeof IntersectionObserver === 'function') { this.io = new IntersectionObserver((e) => { this.visible = e[e.length - 1].isIntersecting; this._sync(); }); this.io.observe(this.canvas); }
+      // pauseHidden: false — играть и за экраном (слои под clip-path, которые надо держать в такт с видимыми)
+      if (opts.pauseHidden !== false && typeof IntersectionObserver === 'function') { this.io = new IntersectionObserver((e) => { this.visible = e[e.length - 1].isIntersecting; this._sync(); }); this.io.observe(this.canvas); }
       if (!this.fixed && typeof ResizeObserver === 'function') { this.ro = new ResizeObserver(() => this._fit(true)); this.ro.observe(this.canvas); }
-      this.ready = (opts.still ? this._set(opts.still).catch(() => {}) : Promise.resolve()).then(() => this._set(source)).then(() => { if (this.want) this.play(); return this; });
+      this.ready = (opts.still ? this._set(opts.still).catch(() => {}) : Promise.resolve()).then(() => this._set(source)).then(() => { if (this.want) { if (opts.segment) this.play(opts.segment[0], opts.segment[1]); else this.play(); } return this; });
     }
     get frames() { return this.player ? this.player.frames : 0; }
     get fps() { return this.player ? this.player.fr : 0; }
     get used() { return this.player ? this.player.used : ''; }
     get scene() { return this.player ? this.player.scene : null; }
-    _draw() { if (this.player) { this.player.render(this.subframe ? this.frame : Math.floor(this.frame)); this.shown = Math.floor(this.frame); } }
+    _draw() { if (this.player) { this._cc(); this.player.render(this.subframe ? this.frame : Math.floor(this.frame)); this.shown = Math.floor(this.frame); } }
     // source: адрес .ecr, ArrayBuffer, Uint8Array или Scene
     _set(source) {
       const gen = ++this.gen;
       return Promise.resolve(typeof source === 'string' ? load(source) : source).then((data) => {
         if (this.dead || gen !== this.gen) return;
         if (this.player) this.player.setScene(data); else this.player = new Player(this.canvas, data, { backend: this.backend });
-        for (const [n, p] of this.over) this.player.scene.setOver(n, p);
+        this.ccv = null; this.player.scene.tint = this.tintSpec === 'currentColor' ? null : rgbaOr(this.tintSpec);
+        for (const [n, p] of this.over) this._over(n, p);
         if (this.frame >= this.player.frames) this.frame = 0;
         this._fit(false); this._draw();
       });
@@ -1284,9 +1291,32 @@
     names() { return this.player ? this.player.scene.elements() : []; }
     // set('имя', { x, y, color }): смещение в единицах исходника, цвет '#rrggbb'. Без пересборки, сразу на экране
     set(name, patch) {
-      const cur = Object.assign(this.over.get(name) || {}, patch || {}); this.over.set(name, cur);
-      if (this.player) { this.player.scene.setOver(name, cur); if (!this.playing) this._draw(); else this.shown = -1; }
+      const cur = Object.assign(this.over.get(name) || {}, patch || {}); this.over.set(name, cur); this._ccUse();
+      if (this.player) { this._over(name, cur); this._redraw(); }
       return this;
+    }
+    // tint(цвет): один цвет на всю сцену, как CSS fill на всех path. 'currentColor' берёт color элемента-хозяина
+    // и следит за ним сам (смена темы, класса, стиля); null возвращает цвета файла. Цвет из set() по имени важнее
+    tint(color) {
+      this.tintSpec = color || null; this.ccv = null; this._ccUse();
+      if (this.player) { this.player.scene.tint = color === 'currentColor' ? null : rgbaOr(color); this._redraw(); }
+      return this;
+    }
+    // перечитать currentColor (если CSS поменялся так, что плеер не заметил сам)
+    restyle() { this.ccv = null; this._redraw(); return this; }
+    _redraw() { if (!this.player) return; if (!this.playing) this._draw(); else this.shown = -1; }
+    _over(n, p) { this.player.scene.setOver(n, p.color === 'currentColor' ? Object.assign({}, p, { color: rgbaOr(this.ccv) }) : p); }
+    _ccUse() {
+      let use = this.tintSpec === 'currentColor'; for (const p of this.over.values()) if (p.color === 'currentColor') use = true;
+      this.ccUse = use; if (use) tinted.add(this); else tinted.delete(this); if (use) watchCss();
+    }
+    // currentColor: цвет CSS хозяина читается перед рисованием, пересчёт только когда он поменялся
+    _cc() {
+      if (!this.ccUse) return;
+      let v = ''; try { v = typeof getComputedStyle === 'function' ? getComputedStyle(this.host).color || '' : ''; } catch (e) { v = ''; }
+      if (v === this.ccv) return; this.ccv = v;
+      if (this.tintSpec === 'currentColor') this.player.scene.tint = rgbaOr(v);
+      for (const [n, p] of this.over) if (p.color === 'currentColor') this._over(n, p);
     }
     // сбросить смещение и цвет элемента к исходным
     reset(name) { this.over.delete(name); if (this.player) { this.player.scene.setOver(name, { x: 0, y: 0, color: null }); if (!this.playing) this._draw(); else this.shown = -1; } return this; }
@@ -1325,8 +1355,16 @@
     }
     _step(now) {
       const p = this.player, dt = this.last ? Math.min(100, now - this.last) : 0; this.last = now;
-      let f = this.frame + dt * p.fr * this.speed / 1000, end = false, lap = false;
-      if (f >= p.frames) { if (this.loop && p.frames > 1) { f %= p.frames; lap = true; } else { f = Math.max(0, p.frames - 1); end = true; } }
+      const adv = dt * p.fr * this.speed / 1000; let f, end = false, lap = false;
+      if (this.segment) {
+        // отрезок играет один раз (loop на него не действует), в любую сторону, и встаёт ровно на последнем кадре отрезка
+        const L = Math.max(0, p.frames - 1), cl = (x) => Math.max(0, Math.min(L, x)), a = cl(this.segment[0]), b = cl(this.segment[1]);
+        if (b >= a) { f = Math.max(a, this.frame + adv); if (f >= b) { f = b; end = true; } }
+        else { f = Math.min(a, this.frame - adv); if (f <= b) { f = b; end = true; } }
+      } else {
+        f = this.frame + adv;
+        if (f >= p.frames) { if (this.loop && p.frames > 1) { f %= p.frames; lap = true; } else { f = Math.max(0, p.frames - 1); end = true; } }
+      }
       this.frame = f;
       // экран обновляется чаще, чем меняются кадры файла: один и тот же кадр второй раз не рисуем
       if (this.subframe || Math.floor(f) !== this.shown) this._draw();
@@ -1334,24 +1372,45 @@
       // доиграла круг, а другие ждут очереди: уступает место и встаёт в конец. Так играют все по кругу, а не первые шесть
       else if (lap && waiting.size) { live.delete(this); waiting.add(this); admit(); }
     }
-    play() { this.want = true; this.playing = true; this._sync(); return this; }
+    // play(): дальше от текущего кадра. play(от, до): отрезок с кадра «от» до «до» (можно назад), стоп на «до» и onComplete
+    play(from, to) {
+      if (from === undefined || from === null) this.segment = null;
+      else {
+        const L = this.player ? Math.max(0, this.frames - 1) : Infinity, a = Math.max(0, Math.min(L, +from || 0));
+        this.segment = [a, to === undefined || to === null ? L : +to]; this.frame = a; this.last = 0;
+      }
+      this.want = true; this.playing = true; this._sync(); return this;
+    }
     pause() { this.want = false; this.playing = false; this._sync(); return this; }
     seek(frame) { this.frame = Math.max(0, Math.min(frame, Math.max(0, this.frames - 1))); this._draw(); return this; }
-    destroy() { this.dead = true; this.playing = false; drop(this); if (this.io) this.io.disconnect(); if (this.ro) this.ro.disconnect(); if (this.own) this.canvas.remove(); this.player = null; this.onComplete = null; }
+    destroy() { this.dead = true; this.playing = false; drop(this); if (this.io) this.io.disconnect(); if (this.ro) this.ro.disconnect(); if (this.own) this.canvas.remove(); this.player = null; this.onComplete = null; tinted.delete(this); }
   }
   const mount = (target, source, opts) => new Animation(target, source, opts);
+  const rgbaOr = (c) => { if (!c) return null; try { return toRgba(c); } catch (e) { return null; } };
+  // анимации с currentColor: при смене темы (стиль и класс у html и body, prefers-color-scheme) перечитывают цвет сами
+  const tinted = new Set(); let cssWatch = false;
+  function watchCss() {
+    if (cssWatch || typeof document === 'undefined' || !document.documentElement) return; cssWatch = true;
+    let queued = false;
+    const kick = () => { if (queued) return; queued = true; (G.requestAnimationFrame || setTimeout)(() => { queued = false; for (const a of tinted) a.restyle(); }); };
+    if (typeof MutationObserver === 'function') {
+      const mo = new MutationObserver(kick), o = { attributes: true, attributeFilter: ['style', 'class', 'data-theme'] };
+      mo.observe(document.documentElement, o); if (document.body) mo.observe(document.body, o);
+    }
+    if (G.matchMedia) { const q = G.matchMedia('(prefers-color-scheme: dark)'); if (q && q.addEventListener) q.addEventListener('change', kick); }
+  }
 
   // <e-core src="a.ecr" still="a.still.ecr" style="width:160px"></e-core>
   if (typeof customElements !== 'undefined' && !customElements.get('e-core')) customElements.define('e-core', class extends HTMLElement {
-    static get observedAttributes() { return ['src']; }
+    static get observedAttributes() { return ['src', 'tint']; }
     connectedCallback() {
       if (this.anim || !this.getAttribute('src')) return;
       if (getComputedStyle(this).display === 'inline') this.style.display = 'inline-block';
       const g = (k) => this.getAttribute(k);
-      this.anim = mount(this, g('src'), { still: g('still') || undefined, loop: g('loop') !== 'false', autoplay: g('autoplay') !== 'false', speed: +g('speed') || 1, backend: g('backend') || undefined, size: +g('size') || 0, subframe: g('subframe') !== null && g('subframe') !== 'false' });
+      this.anim = mount(this, g('src'), { still: g('still') || undefined, loop: g('loop') !== 'false', autoplay: g('autoplay') !== 'false', speed: +g('speed') || 1, backend: g('backend') || undefined, size: +g('size') || 0, subframe: g('subframe') !== null && g('subframe') !== 'false', tint: g('tint') || undefined, segment: g('segment') ? g('segment').trim().split(/[\s,]+/).map(Number) : undefined });
     }
     disconnectedCallback() { if (this.anim) { this.anim.destroy(); this.anim = null; } }
-    attributeChangedCallback(name, old, val) { if (this.anim && val && val !== old) this.anim.setSource(val); else if (!this.anim && this.isConnected) this.connectedCallback(); }
+    attributeChangedCallback(name, old, val) { if (name === 'tint') { if (this.anim) this.anim.tint(val); return; } if (this.anim && val && val !== old) this.anim.setSource(val); else if (!this.anim && this.isConnected) this.connectedCallback(); }
   });
 
   // сцена прямо из документа Lottie (нужен ecr.js рядом): для редактора, без записи файла на диск
@@ -1370,7 +1429,7 @@
     setVerify: (on) => { verifyGL = !!on; },
     // пустая строка, если видеокарта рисует верно; иначе что именно она нарисовала не так (после этого работает Canvas 2D)
     glFault: () => glFault,
-    version: '0.3.2',
+    version: '0.4.0',
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   G.ECore = Object.assign(G.ECore || {}, api);
